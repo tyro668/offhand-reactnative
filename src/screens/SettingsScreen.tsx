@@ -6,18 +6,9 @@ import SettingsRow from '../components/SettingsRow';
 
 type SettingScreen = 'asr' | 'model' | 'shortcut';
 
-interface ASRConfig {
-  model: string;
-}
-
-interface ModelConfig {
-  model: string;
-}
-
-interface ShortcutConfig {
-  modifier: string;
-  key: string;
-}
+interface ASRConfig {engine: string; model: string; language: string; sampleRate: string}
+interface ModelConfig {provider: string; model: string; baseUrl: string; apiKey: string; style: string; maxTokens: string}
+interface ShortcutConfig {modifier: string; key: string}
 
 interface Props {
   config: {
@@ -26,72 +17,47 @@ interface Props {
     shortcut: ShortcutConfig;
   };
   onNavigate: (screen: SettingScreen) => void;
-  onMenuPress: () => void;
 }
 
-export default function SettingsScreen({
-  config,
-  onNavigate,
-  onMenuPress,
-}: Props) {
+export default function SettingsScreen({config, onNavigate}: Props) {
   const {t, lang, toggleLang} = useI18n();
   const {colors, isDark, toggleTheme} = useTheme();
   const s = makeStyles(colors);
 
   return (
     <View style={s.container}>
-      <View style={s.header}>
-        <TouchableOpacity onPress={onMenuPress} style={s.menuBtn}>
-          <Text style={s.menuIcon}>☰</Text>
-        </TouchableOpacity>
-        <Text style={s.title}>{t('settings')}</Text>
-        <View style={s.spacer} />
-      </View>
-
       <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
-        {/* General */}
-        <Text style={s.sectionTitle}>通用</Text>
+        <Text style={s.sectionTitle}>{t('general')}</Text>
         <View style={s.row}>
-          <Text style={s.rowLabel}>语言 / Language</Text>
-          <TouchableOpacity
-            style={s.toggle}
-            onPress={toggleLang}>
-            <Text style={s.toggleText}>{lang === 'zh' ? '中文' : 'English'}</Text>
+          <Text style={s.rowLabel}>{t('langLabel')}</Text>
+          <TouchableOpacity style={s.toggle} onPress={toggleLang}>
+            <Text style={s.toggleText}>{lang === 'zh' ? t('languageZh') : t('languageEn')}</Text>
           </TouchableOpacity>
         </View>
         <View style={s.row}>
-          <Text style={s.rowLabel}>深色模式</Text>
+          <Text style={s.rowLabel}>{t('darkMode')}</Text>
           <TouchableOpacity
             style={[s.toggle, isDark && s.toggleActive]}
             onPress={toggleTheme}>
-            <Text
-              style={[
-                s.toggleText,
-                isDark && s.toggleTextActive,
-              ]}>
-              {isDark ? '开启' : '关闭'}
+            <Text style={[s.toggleText, isDark && s.toggleTextActive]}>
+              {isDark ? t('darkOn') : t('darkOff')}
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Models */}
-        <Text style={s.sectionTitle}>模型配置</Text>
-        <Text style={s.sectionDesc}>{t('asrModelDesc')}</Text>
+        <Text style={s.sectionTitle}>{t('modelsSection')}</Text>
         <SettingsRow
-          label={t('asrModel')}
-          value={t(config.asr.model)}
+          label={t('speechModel')}
+          value={`${t(config.asr.engine)} · ${t(config.asr.model)} · ${t(config.asr.language)}`}
           onPress={() => onNavigate('asr')}
         />
-        <Text style={s.sectionDesc}>{t('textModelDesc')}</Text>
         <SettingsRow
-          label={t('textModel')}
-          value={t(config.textModel.model)}
+          label={t('textModelTitle')}
+          value={`${config.textModel.provider} · ${config.textModel.model}`}
           onPress={() => onNavigate('model')}
         />
 
-        {/* Shortcuts */}
-        <Text style={s.sectionTitle}>快捷键</Text>
-        <Text style={s.sectionDesc}>{t('shortcutDesc')}</Text>
+        <Text style={s.sectionTitle}>{t('shortcutsSection')}</Text>
         <SettingsRow
           label={t('shortcutRecording')}
           value={
@@ -101,6 +67,7 @@ export default function SettingsScreen({
           }
           onPress={() => onNavigate('shortcut')}
         />
+        <View style={{height: 40}} />
       </ScrollView>
     </View>
   );
@@ -108,55 +75,17 @@ export default function SettingsScreen({
 
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: c.bg,
-    },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingTop: 60,
-      paddingBottom: 14,
-      backgroundColor: c.card,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
-    },
-    menuBtn: {
-      minWidth: 44,
-      paddingVertical: 4,
-    },
-    menuIcon: {
-      fontSize: 20,
-      color: c.textSecondary,
-    },
-    title: {
-      fontSize: 17,
-      fontWeight: '600',
-      color: c.text,
-    },
-    spacer: {
-      minWidth: 44,
-    },
-    scroll: {
-      flex: 1,
-    },
+    container: {flex: 1, backgroundColor: c.bg},
+    scroll: {flex: 1, paddingHorizontal: 16, paddingTop: 16},
     sectionTitle: {
       fontSize: 12,
       fontWeight: '600',
       color: c.textMuted,
-      paddingHorizontal: 20,
+      paddingHorizontal: 8,
       marginTop: 24,
       marginBottom: 4,
       textTransform: 'uppercase',
       letterSpacing: 1,
-    },
-    sectionDesc: {
-      fontSize: 12,
-      color: c.textMuted,
-      paddingHorizontal: 20,
-      marginBottom: 4,
     },
     row: {
       flexDirection: 'row',
@@ -165,28 +94,20 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: 20,
       paddingVertical: 14,
       backgroundColor: c.card,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
+      borderRadius: 10,
+      marginBottom: 6,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
     },
-    rowLabel: {
-      fontSize: 15,
-      color: c.text,
-    },
+    rowLabel: {fontSize: 15, color: c.text},
     toggle: {
       paddingHorizontal: 16,
       paddingVertical: 6,
       borderRadius: 16,
       backgroundColor: c.bgSecondary,
     },
-    toggleActive: {
-      backgroundColor: c.accent,
-    },
-    toggleText: {
-      fontSize: 13,
-      color: c.textSecondary,
-    },
-    toggleTextActive: {
-      color: '#ffffff',
-    },
+    toggleActive: {backgroundColor: c.accent},
+    toggleText: {fontSize: 13, color: c.textSecondary},
+    toggleTextActive: {color: '#ffffff'},
   });
 }

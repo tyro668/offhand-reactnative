@@ -1,5 +1,5 @@
 import React from 'react';
-import {View, Text, ScrollView, StyleSheet, TouchableOpacity} from 'react-native';
+import {View, Text, ScrollView, StyleSheet, TouchableOpacity, Share} from 'react-native';
 
 interface State {
   hasError: boolean;
@@ -24,6 +24,14 @@ export default class ErrorBoundary extends React.Component<
     this.setState({error, info: errorInfo.componentStack || ''});
   }
 
+  handleCopy = () => {
+    const errMsg = this.state.error?.message || '';
+    const errStack = this.state.error?.stack || '';
+    const info = this.state.info || '';
+    const fullText = `Error: ${errMsg}\n\nComponent Stack:\n${info}\n\nCall Stack:\n${errStack}`;
+    Share.share({message: fullText});
+  };
+
   render() {
     if (this.state.hasError) {
       const errMsg = this.state.error?.message || 'Unknown error';
@@ -36,11 +44,17 @@ export default class ErrorBoundary extends React.Component<
           <Text style={styles.stack} selectable>{this.state.info}</Text>
           <Text style={styles.stackTitle}>Call Stack:</Text>
           <Text style={styles.stack} selectable>{errStack}</Text>
-          <TouchableOpacity
-            style={styles.reloadBtn}
-            onPress={() => this.setState({hasError: false, error: null, info: ''})}>
-            <Text style={styles.reloadText}>Dismiss</Text>
-          </TouchableOpacity>
+
+          <View style={styles.btnRow}>
+            <TouchableOpacity style={styles.copyBtn} onPress={this.handleCopy}>
+              <Text style={styles.copyText}>Copy Error</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.dismissBtn}
+              onPress={() => this.setState({hasError: false, error: null, info: ''})}>
+              <Text style={styles.dismissText}>Dismiss</Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       );
     }
@@ -71,13 +85,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafafa',
     borderRadius: 8,
   },
-  reloadBtn: {
+  btnRow: {
+    flexDirection: 'row',
     marginTop: 32,
+  },
+  copyBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 8,
+    backgroundColor: '#d32f2f',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  copyText: {fontSize: 15, color: '#fff', fontWeight: '600'},
+  dismissBtn: {
+    flex: 1,
     paddingVertical: 14,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#ddd',
     alignItems: 'center',
   },
-  reloadText: {fontSize: 15, color: '#888'},
+  dismissText: {fontSize: 15, color: '#888'},
 });

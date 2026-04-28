@@ -44,113 +44,83 @@ export default function ShortcutSettings({
   return (
     <View style={s.container}>
       <View style={s.header}>
-        <TouchableOpacity onPress={onBack}>
-          <Text style={s.backBtn}>← 返回</Text>
+        <TouchableOpacity onPress={onBack} style={s.backBtn}>
+          <Text style={s.backText}>{t('backBtn')}</Text>
         </TouchableOpacity>
         <Text style={s.title}>{t('shortcutRecording')}</Text>
         <TouchableOpacity onPress={handleSave}>
-          <Text style={s.saveBtn}>{t('save')}</Text>
+          <Text style={s.saveText}>{t('save')}</Text>
         </TouchableOpacity>
       </View>
 
-      <Text style={s.desc}>{t('shortcutRecordingDesc')}</Text>
+      <View style={s.body}>
+        <Text style={s.sectionLabel}>{t('modifierKey')}</Text>
+        <View style={s.grid}>
+          {MODIFIERS.map(m => (
+            <TouchableOpacity
+              key={m.id}
+              style={[s.chip, mod === m.id && s.chipSelected]}
+              onPress={() => setMod(m.id)}>
+              <Text style={[s.chipText, mod === m.id && s.chipTextSelected]}>
+                {m.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-      <Text style={s.sectionLabel}>{t('modifierKey')}</Text>
-      <View style={s.grid}>
-        {MODIFIERS.map(m => (
-          <TouchableOpacity
-            key={m.id}
-            style={[s.chip, mod === m.id && s.chipSelected]}
-            onPress={() => setMod(m.id)}>
-            <Text
-              style={[s.chipText, mod === m.id && s.chipTextSelected]}>
-              {m.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        <Text style={s.sectionLabel}>{t('mainKey')}</Text>
+        <View style={s.grid}>
+          {KEYS.map(k => (
+            <TouchableOpacity
+              key={k}
+              style={[s.chip, key === k && s.chipSelected]}
+              onPress={() => setKey(k)}>
+              <Text style={[s.chipText, key === k && s.chipTextSelected]}>{k}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={s.preview}>
+          <Text style={s.previewLabel}>{t('currentShortcut')}</Text>
+          <Text style={s.previewKey}>
+            {key ? `${mod}+${key}` : t('noShortcut')}
+          </Text>
+        </View>
+
+        <TouchableOpacity style={s.clearBtn} onPress={handleClear}>
+          <Text style={s.clearText}>{t('clearShortcut')}</Text>
+        </TouchableOpacity>
       </View>
-
-      <Text style={s.sectionLabel}>{t('mainKey')}</Text>
-      <View style={s.grid}>
-        {KEYS.map(k => (
-          <TouchableOpacity
-            key={k}
-            style={[s.chip, key === k && s.chipSelected]}
-            onPress={() => setKey(k)}>
-            <Text
-              style={[s.chipText, key === k && s.chipTextSelected]}>
-              {k}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <View style={s.preview}>
-        <Text style={s.previewLabel}>{t('currentShortcut')}</Text>
-        <Text style={s.previewKey}>
-          {key ? `${mod}+${key}` : t('noShortcut')}
-        </Text>
-      </View>
-
-      <TouchableOpacity style={s.clearBtn} onPress={handleClear}>
-        <Text style={s.clearText}>{t('clearShortcut')}</Text>
-      </TouchableOpacity>
     </View>
   );
 }
 
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: c.bg,
-    },
+    container: {flex: 1, backgroundColor: c.bg},
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingTop: 60,
-      paddingBottom: 14,
-      backgroundColor: c.card,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
+      paddingHorizontal: 28,
+      paddingTop: 32,
+      paddingBottom: 16,
     },
-    backBtn: {
-      fontSize: 15,
-      color: c.accent,
-    },
-    title: {
-      fontSize: 17,
-      fontWeight: '600',
-      color: c.text,
-    },
-    saveBtn: {
-      fontSize: 15,
-      color: c.accent,
-      fontWeight: '500',
-    },
-    desc: {
-      fontSize: 13,
-      color: c.textMuted,
-      paddingHorizontal: 20,
-      paddingVertical: 16,
-    },
+    backBtn: {minWidth: 60},
+    backText: {fontSize: 15, color: c.accent},
+    title: {fontSize: 17, fontWeight: '600', color: c.text},
+    saveText: {fontSize: 15, color: c.accent, fontWeight: '500'},
+    body: {paddingHorizontal: 20},
     sectionLabel: {
       fontSize: 12,
       fontWeight: '600',
       color: c.textMuted,
-      paddingHorizontal: 20,
       marginTop: 12,
       marginBottom: 10,
       textTransform: 'uppercase',
       letterSpacing: 1,
     },
-    grid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      paddingHorizontal: 16,
-    },
+    grid: {flexDirection: 'row', flexWrap: 'wrap'},
     chip: {
       paddingHorizontal: 16,
       paddingVertical: 10,
@@ -161,21 +131,11 @@ function makeStyles(c: ThemeColors) {
       marginRight: 8,
       marginBottom: 8,
     },
-    chipSelected: {
-      borderColor: c.accent,
-      backgroundColor: c.accentLight,
-    },
-    chipText: {
-      fontSize: 14,
-      color: c.textSecondary,
-    },
-    chipTextSelected: {
-      color: c.accent,
-      fontWeight: '500',
-    },
+    chipSelected: {borderColor: c.accent, backgroundColor: c.accentLight},
+    chipText: {fontSize: 14, color: c.textSecondary},
+    chipTextSelected: {color: c.accent, fontWeight: '500'},
     preview: {
-      marginTop: 28,
-      marginHorizontal: 20,
+      marginTop: 24,
       padding: 20,
       borderRadius: 12,
       backgroundColor: c.card,
@@ -183,30 +143,17 @@ function makeStyles(c: ThemeColors) {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
     },
-    previewLabel: {
-      fontSize: 12,
-      color: c.textMuted,
-      marginBottom: 8,
-    },
-    previewKey: {
-      fontSize: 22,
-      fontWeight: '600',
-      color: c.text,
-      letterSpacing: 2,
-    },
+    previewLabel: {fontSize: 12, color: c.textMuted, marginBottom: 8},
+    previewKey: {fontSize: 22, fontWeight: '600', color: c.text, letterSpacing: 2},
     clearBtn: {
-      marginHorizontal: 20,
       marginTop: 16,
       paddingVertical: 12,
       borderRadius: 8,
       borderWidth: 1,
       borderColor: c.danger,
       alignItems: 'center',
-      opacity: 0.6,
+      opacity: 0.5,
     },
-    clearText: {
-      fontSize: 14,
-      color: c.danger,
-    },
+    clearText: {fontSize: 14, color: c.danger},
   });
 }

@@ -1,121 +1,368 @@
-import React from 'react';
-import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
+import React, {useState, useCallback, useRef} from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+} from 'react-native';
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
 
-const MODELS = [
-  'modelWhisperLarge',
-  'modelWhisperMedium',
-  'modelWhisperSmall',
-];
+interface ASRConfig {
+  engine: string;
+  model: string;
+  language: string;
+  sampleRate: string;
+}
 
 interface Props {
-  current: string;
-  onSelect: (model: string) => void;
+  config: ASRConfig;
+  onSave: (config: ASRConfig) => void;
   onBack: () => void;
 }
 
-export default function ASRSettings({current, onSelect, onBack}: Props) {
+const LANGUAGES = ['asrLanguageAuto', 'asrLanguageZh', 'asrLanguageEn'];
+const SAMPLE_RATES = [
+  {key: '16k', labelKey: 'sampleRate16k'},
+  {key: '48k', labelKey: 'sampleRate48k'},
+];
+
+const SENSEVOICE_MODELS = [
+  {key: 'senseVoiceSmall', size: '~90MB'},
+  {key: 'senseVoiceMedium', size: '~250MB'},
+  {key: 'senseVoiceLarge', size: '~600MB'},
+];
+
+const WHISPER_MODELS = [
+  {key: 'whisperTiny', size: '~75MB'},
+  {key: 'whisperBase', size: '~145MB'},
+  {key: 'whisperSmall', size: '~460MB'},
+  {key: 'whisperMedium', size: '~1.5GB'},
+  {key: 'whisperLarge', size: '~2.9GB'},
+];
+
+type DownloadState = Record<string, {progress: number; status: 'none' | 'downloading' | 'done' | 'failed'}>;
+
+export default function ASRSettings({config, onSave, onBack}: Props) {
   const {t} = useI18n();
   const {colors} = useTheme();
   const s = makeStyles(colors);
 
+  const [engine, setEngine] = useState(config.engine);
+  const [model, setModel] = useState(config.model);
+  const [language, setLanguage] = useState(config.language);
+  const [sampleRate, setSampleRate] = useState(config.sampleRate);
+  const [downloads, setDownloads] = useState<DownloadState>({});
+  const timers = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+
+  const currentModels = engine === 'sensevoice' ? SENSEVOICE_MODELS : WHISPER_MODELS;
+
+  const startDownload = useCallback((modelKey: string) => {
+    setDownloads(prev => ({
+      ...prev,
+      [modelKey]: {progress: 0, status: 'downloading'},
+    }));
+
+    // Simulate download progress
+    let progress = 0;
+    const timer = setInterval(() => {
+      progress += Math.random() * 15 + 5;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(timer);
+        delete timers.current[modelKey];
+        setDownloads(prev => ({
+          ...prev,
+          [modelKey]: {progress: 100, status: 'done'},
+        }));
+      } else {
+        setDownloads(prev => ({
+          ...prev,
+          [modelKey]: {progress: Math.floor(progress), status: 'downloading'},
+        }));
+      }
+    }, 400);
+    timers.current[modelKey] = timer;
+  }, []);
+
+  const getDownloadBtn = (modelKey: string) => {
+    const ds = downloads[modelKey];
+    if (!ds || ds.status === 'none') {
+      return (
+        <TouchableOpacity
+          style={s.dlBtn}
+          onPress={() => startDownload(modelKey)}>
+          <Text style={s.dlBtnText}>{t('downloadModel')}</Text>
+        </TouchableOpacity>
+      );
+    }
+    if (ds.status === 'downloading') {
+      return (
+        <View style={s.dlProgress}>
+          <View style={s.progressBar}>
+            <View style={[s.progressFill, {width: `${ds.progress}%`}]} />
+          </View>
+          <Text style={s.dlProgressText}>{ds.progress}%</Text>
+        </View>
+      );
+    }
+    if (ds.status === 'done') {
+      return (
+        <View style={s.dlDone}>
+          <Text style={s.dlDoneText}>{t('downloadComplete')}</Text>
+        </View>
+      );
+    }
+    return (
+      <TouchableOpacity
+        style={s.dlBtn}
+        onPress={() => startDownload(modelKey)}>
+        <Text style={s.dlBtnText}>{t('downloadFailed')}</Text>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={s.container}>
       <View style={s.header}>
-        <TouchableOpacity onPress={onBack}>
-          <Text style={s.backBtn}>← 返回</Text>
+        <TouchableOpacity onPress={onBack} style={s.backBtn}>
+          <Text style={s.backText}>{t('backBtn')}</Text>
         </TouchableOpacity>
-        <Text style={s.title}>{t('asrModel')}</Text>
-        <View style={s.spacer} />
+        <Text style={s.title}>{t('speechModel')}</Text>
+        <TouchableOpacity
+          onPress={() => onSave({engine, model, language, sampleRate})}>
+          <Text style={s.saveText}>{t('save')}</Text>
+        </TouchableOpacity>
       </View>
-      <Text style={s.desc}>{t('asrModelDesc')}</Text>
-      <View style={s.list}>
-        {MODELS.map(model => (
+
+      <ScrollView style={s.body} showsVerticalScrollIndicator={false}>
+        <Text style={s.desc}>{t('speechModelDesc')}</Text>
+
+        {/* Engine selector */}
+        <Text style={s.sectionLabel}>{t('asrEngine')}</Text>
+        <Text style={s.sectionHint}>{t('asrEngineDesc')}</Text>
+        <View style={s.engineRow}>
           <TouchableOpacity
-            key={model}
-            style={[s.option, current === model && s.optionSelected]}
-            onPress={() => onSelect(model)}>
-            <Text
-              style={[
-                s.optionText,
-                current === model && s.optionTextSelected,
-              ]}>
-              {t(model)}
+            style={[s.engineBtn, engine === 'sensevoice' && s.engineBtnActive]}
+            onPress={() => {
+              setEngine('sensevoice');
+              setModel('senseVoiceSmall');
+            }}>
+            <Text style={[s.engineText, engine === 'sensevoice' && s.engineTextActive]}>
+              {t('engineSenseVoice')}
             </Text>
-            {current === model && <Text style={s.check}>✓</Text>}
+            <Text style={[s.engineSub, engine === 'sensevoice' && s.engineTextActive]}>
+              中文优化 · 多情感
+            </Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.engineBtn, engine === 'whisper' && s.engineBtnActive]}
+            onPress={() => {
+              setEngine('whisper');
+              setModel('whisperSmall');
+            }}>
+            <Text style={[s.engineText, engine === 'whisper' && s.engineTextActive]}>
+              {t('engineWhisper')}
+            </Text>
+            <Text style={[s.engineSub, engine === 'whisper' && s.engineTextActive]}>
+              多语言 · 通用
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Model list */}
+        <Text style={s.sectionLabel}>
+          {engine === 'sensevoice' ? 'SenseVoice' : 'Whisper'} {t('asrModel')}
+        </Text>
+        {currentModels.map(m => (
+          <View key={m.key} style={model === m.key ? s.modelCardActive : s.modelCard}>
+            <TouchableOpacity
+              style={s.modelInfo}
+              onPress={() => setModel(m.key)}>
+              <View style={s.modelLeft}>
+                <Text style={[s.modelName, model === m.key && s.modelNameActive]}>
+                  {t(m.key)}
+                </Text>
+                <Text style={s.modelSize}>
+                  {t('modelSize')}: {m.size}
+                </Text>
+              </View>
+              {model === m.key && <Text style={s.check}>✓</Text>}
+            </TouchableOpacity>
+            <View style={s.modelActions}>
+              {getDownloadBtn(m.key)}
+            </View>
+          </View>
         ))}
-      </View>
+
+        {/* Language */}
+        <Text style={s.sectionLabel}>{t('asrLanguage')}</Text>
+        <Text style={s.sectionHint}>{t('asrLanguageDesc')}</Text>
+        <View style={s.chipRow}>
+          {LANGUAGES.map(lang => (
+            <TouchableOpacity
+              key={lang}
+              style={[s.chip, language === lang && s.chipSelected]}
+              onPress={() => setLanguage(lang)}>
+              <Text style={[s.chipText, language === lang && s.chipTextSelected]}>
+                {t(lang)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Sample rate */}
+        <Text style={s.sectionLabel}>{t('asrSampleRate')}</Text>
+        <Text style={s.sectionHint}>{t('asrSampleRateDesc')}</Text>
+        <View style={s.chipRow}>
+          {SAMPLE_RATES.map(sr => (
+            <TouchableOpacity
+              key={sr.key}
+              style={[s.chip, sampleRate === sr.key && s.chipSelected]}
+              onPress={() => setSampleRate(sr.key)}>
+              <Text style={[s.chipText, sampleRate === sr.key && s.chipTextSelected]}>
+                {t(sr.labelKey)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={{height: 40}} />
+      </ScrollView>
     </View>
   );
 }
 
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: c.bg,
-    },
+    container: {flex: 1, backgroundColor: c.bg},
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingTop: 60,
+      paddingHorizontal: 20,
+      paddingTop: 20,
       paddingBottom: 14,
       backgroundColor: c.card,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.border,
     },
-    backBtn: {
-      fontSize: 15,
-      color: c.accent,
-    },
-    title: {
-      fontSize: 17,
-      fontWeight: '600',
-      color: c.text,
-    },
-    spacer: {
-      minWidth: 44,
-    },
-    desc: {
+    backBtn: {minWidth: 60},
+    backText: {fontSize: 15, color: c.accent},
+    title: {fontSize: 17, fontWeight: '600', color: c.text},
+    saveText: {fontSize: 15, color: c.accent, fontWeight: '500'},
+    body: {flex: 1, paddingHorizontal: 20, paddingTop: 16},
+    desc: {fontSize: 13, color: c.textMuted, marginBottom: 20},
+    sectionLabel: {
       fontSize: 13,
-      color: c.textMuted,
-      paddingHorizontal: 20,
-      paddingVertical: 16,
+      fontWeight: '600',
+      color: c.textSecondary,
+      marginBottom: 4,
     },
-    list: {
-      paddingHorizontal: 12,
+    sectionHint: {fontSize: 12, color: c.textMuted, marginBottom: 10},
+
+    // Engine selector
+    engineRow: {flexDirection: 'row', marginBottom: 20},
+    engineBtn: {
+      flex: 1,
+      padding: 14,
+      borderRadius: 10,
+      backgroundColor: c.card,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+      marginRight: 8,
+      alignItems: 'center',
     },
-    option: {
+    engineBtnActive: {borderColor: c.accent, backgroundColor: c.accentLight},
+    engineText: {fontSize: 14, fontWeight: '600', color: c.textSecondary},
+    engineTextActive: {color: c.accent},
+    engineSub: {fontSize: 11, color: c.textMuted, marginTop: 4},
+    engineSubActive: {color: c.accent, opacity: 0.7},
+
+    // Model cards
+    modelCard: {
+      backgroundColor: c.card,
+      borderRadius: 10,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+      marginBottom: 8,
+      overflow: 'hidden',
+    },
+    modelCardActive: {
+      backgroundColor: c.card,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: c.accent,
+      marginBottom: 8,
+      overflow: 'hidden',
+    },
+    modelInfo: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 16,
-      paddingVertical: 16,
-      marginVertical: 2,
-      borderRadius: 8,
+      paddingVertical: 12,
+    },
+    modelLeft: {flex: 1},
+    modelName: {fontSize: 14, fontWeight: '500', color: c.text},
+    modelNameActive: {color: c.accent},
+    modelSize: {fontSize: 11, color: c.textMuted, marginTop: 2},
+    check: {fontSize: 16, color: c.accent, marginLeft: 12},
+    modelActions: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.border,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+
+    // Download
+    dlBtn: {
+      alignSelf: 'flex-start',
+      paddingHorizontal: 16,
+      paddingVertical: 7,
+      borderRadius: 14,
+      backgroundColor: c.accent,
+    },
+    dlBtnText: {fontSize: 12, color: '#ffffff', fontWeight: '500'},
+    dlProgress: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    progressBar: {
+      flex: 1,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: c.bgSecondary,
+      marginRight: 10,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      borderRadius: 3,
+      backgroundColor: c.accent,
+    },
+    dlProgressText: {fontSize: 12, color: c.accent, fontWeight: '500', minWidth: 36},
+    dlDone: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    dlDoneText: {fontSize: 12, color: '#4caf50', fontWeight: '500'},
+
+    // Chips
+    chipRow: {flexDirection: 'row', flexWrap: 'wrap', marginBottom: 20},
+    chip: {
+      paddingHorizontal: 18,
+      paddingVertical: 10,
+      borderRadius: 20,
       backgroundColor: c.card,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
+      marginRight: 8,
+      marginBottom: 6,
     },
-    optionSelected: {
-      borderColor: c.accent,
-      backgroundColor: c.accentLight,
-    },
-    optionText: {
-      fontSize: 15,
-      color: c.text,
-    },
-    optionTextSelected: {
-      color: c.accent,
-      fontWeight: '500',
-    },
-    check: {
-      fontSize: 16,
-      color: c.accent,
-    },
+    chipSelected: {borderColor: c.accent, backgroundColor: c.accentLight},
+    chipText: {fontSize: 13, color: c.textSecondary},
+    chipTextSelected: {color: c.accent, fontWeight: '500'},
   });
 }

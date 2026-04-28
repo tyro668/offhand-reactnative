@@ -10,17 +10,13 @@ import {
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
 
-interface Props {
-  onMenuPress: () => void;
-}
-
 interface Word {
   id: string;
   text: string;
   type: 'word' | 'sentence';
 }
 
-export default function MemoryScreen({onMenuPress}: Props) {
+export default function MemoryScreen() {
   const {t} = useI18n();
   const {colors} = useTheme();
   const s = makeStyles(colors);
@@ -35,9 +31,7 @@ export default function MemoryScreen({onMenuPress}: Props) {
   const [showInput, setShowInput] = useState(false);
 
   const addWord = () => {
-    if (!inputText.trim()) {
-      return;
-    }
+    if (!inputText.trim()) return;
     setWords(prev => [
       ...prev,
       {id: Date.now().toString(), text: inputText.trim(), type: inputType},
@@ -50,48 +44,40 @@ export default function MemoryScreen({onMenuPress}: Props) {
     setWords(prev => prev.filter(w => w.id !== id));
   };
 
+  const wordList = words.filter(w => w.type === 'word');
+  const sentenceList = words.filter(w => w.type === 'sentence');
+
   return (
     <View style={s.container}>
-      <View style={s.header}>
-        <TouchableOpacity onPress={onMenuPress} style={s.menuBtn}>
-          <Text style={s.menuIcon}>☰</Text>
-        </TouchableOpacity>
-        <Text style={s.title}>记忆库</Text>
-        <TouchableOpacity
-          onPress={() => setShowInput(!showInput)}
-          style={s.addBtn}>
-          <Text style={s.addBtnText}>+</Text>
-        </TouchableOpacity>
-      </View>
+      <ScrollView
+        style={s.scroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={s.scrollContent}>
+        <View style={s.toolbar}>
+          <TouchableOpacity
+            onPress={() => setShowInput(!showInput)}
+            style={s.addBtn}>
+            <Text style={s.addBtnText}>
+              {showInput ? t('memoryCancel') : t('memoryAddBtn')}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-      <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
-        {/* Add input */}
         {showInput && (
           <View style={s.inputCard}>
             <View style={s.typeRow}>
               <TouchableOpacity
                 style={[s.typeBtn, inputType === 'word' && s.typeBtnActive]}
                 onPress={() => setInputType('word')}>
-                <Text
-                  style={[
-                    s.typeBtnText,
-                    inputType === 'word' && s.typeBtnTextActive,
-                  ]}>
-                  词语
+                <Text style={[s.typeBtnText, inputType === 'word' && s.typeBtnTextActive]}>
+                  {t('memoryWord')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  s.typeBtn,
-                  inputType === 'sentence' && s.typeBtnActive,
-                ]}
+                style={[s.typeBtn, inputType === 'sentence' && s.typeBtnActive]}
                 onPress={() => setInputType('sentence')}>
-                <Text
-                  style={[
-                    s.typeBtnText,
-                    inputType === 'sentence' && s.typeBtnTextActive,
-                  ]}>
-                  语句
+                <Text style={[s.typeBtnText, inputType === 'sentence' && s.typeBtnTextActive]}>
+                  {t('memorySentence')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -99,58 +85,57 @@ export default function MemoryScreen({onMenuPress}: Props) {
               style={[s.textInput, {minHeight: inputType === 'sentence' ? 80 : 44}]}
               value={inputText}
               onChangeText={setInputText}
-              placeholder={inputType === 'word' ? '输入词语...' : '输入语句...'}
+              placeholder={
+                inputType === 'word'
+                  ? t('memoryWordPlaceholder')
+                  : t('memorySentencePlaceholder')
+              }
               placeholderTextColor={colors.textMuted}
               multiline={inputType === 'sentence'}
               autoFocus
             />
             <TouchableOpacity style={s.submitBtn} onPress={addWord}>
-              <Text style={s.submitBtnText}>添加</Text>
+              <Text style={s.submitBtnText}>{t('memoryAdd')}</Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* Word list */}
         <Text style={s.sectionTitle}>
-          词语 ({words.filter(w => w.type === 'word').length})
+          {t('memoryWord')} ({wordList.length})
         </Text>
-        {words.filter(w => w.type === 'word').length === 0 ? (
+        {wordList.length === 0 ? (
           <View style={s.emptyCard}>
-            <Text style={s.emptyText}>暂无词语</Text>
+            <Text style={s.emptyText}>{t('memoryEmptyWords')}</Text>
           </View>
         ) : (
-          words
-            .filter(w => w.type === 'word')
-            .map(w => (
-              <View key={w.id} style={s.wordItem}>
-                <Text style={s.wordText}>{w.text}</Text>
-                <TouchableOpacity onPress={() => deleteWord(w.id)}>
-                  <Text style={s.deleteBtn}>×</Text>
-                </TouchableOpacity>
-              </View>
-            ))
+          wordList.map(w => (
+            <View key={w.id} style={s.wordItem}>
+              <Text style={s.wordText}>{w.text}</Text>
+              <TouchableOpacity onPress={() => deleteWord(w.id)}>
+                <Text style={s.deleteBtn}>×</Text>
+              </TouchableOpacity>
+            </View>
+          ))
         )}
 
-        {/* Sentence list */}
         <Text style={[s.sectionTitle, {marginTop: 24}]}>
-          语句 ({words.filter(w => w.type === 'sentence').length})
+          {t('memorySentence')} ({sentenceList.length})
         </Text>
-        {words.filter(w => w.type === 'sentence').length === 0 ? (
+        {sentenceList.length === 0 ? (
           <View style={s.emptyCard}>
-            <Text style={s.emptyText}>暂无语句</Text>
+            <Text style={s.emptyText}>{t('memoryEmptySentences')}</Text>
           </View>
         ) : (
-          words
-            .filter(w => w.type === 'sentence')
-            .map(w => (
-              <View key={w.id} style={s.sentenceItem}>
-                <Text style={s.sentenceText}>{w.text}</Text>
-                <TouchableOpacity onPress={() => deleteWord(w.id)}>
-                  <Text style={s.deleteBtn}>×</Text>
-                </TouchableOpacity>
-              </View>
-            ))
+          sentenceList.map(w => (
+            <View key={w.id} style={s.sentenceItem}>
+              <Text style={s.sentenceText}>{w.text}</Text>
+              <TouchableOpacity onPress={() => deleteWord(w.id)}>
+                <Text style={s.deleteBtn}>×</Text>
+              </TouchableOpacity>
+            </View>
+          ))
         )}
+        <View style={{height: 40}} />
       </ScrollView>
     </View>
   );
@@ -158,48 +143,17 @@ export default function MemoryScreen({onMenuPress}: Props) {
 
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: c.bg,
-    },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingTop: 60,
-      paddingBottom: 14,
-      backgroundColor: c.card,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
-    },
-    menuBtn: {
-      minWidth: 44,
-      paddingVertical: 4,
-    },
-    menuIcon: {
-      fontSize: 20,
-      color: c.textSecondary,
-    },
-    title: {
-      fontSize: 17,
-      fontWeight: '600',
-      color: c.text,
-    },
+    container: {flex: 1, backgroundColor: c.bg},
+    scroll: {flex: 1},
+    scrollContent: {paddingHorizontal: 20, paddingTop: 16},
+    toolbar: {flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 12},
     addBtn: {
-      minWidth: 44,
-      alignItems: 'flex-end',
-    },
-    addBtnText: {
-      fontSize: 24,
-      color: c.accent,
-      fontWeight: '300',
-    },
-    scroll: {
-      flex: 1,
       paddingHorizontal: 16,
-      paddingTop: 12,
+      paddingVertical: 8,
+      borderRadius: 8,
+      backgroundColor: c.accent,
     },
+    addBtnText: {fontSize: 13, color: '#ffffff', fontWeight: '500'},
     inputCard: {
       backgroundColor: c.card,
       borderRadius: 12,
@@ -208,10 +162,7 @@ function makeStyles(c: ThemeColors) {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
     },
-    typeRow: {
-      flexDirection: 'row',
-      marginBottom: 12,
-    },
+    typeRow: {flexDirection: 'row', marginBottom: 12},
     typeBtn: {
       paddingHorizontal: 20,
       paddingVertical: 8,
@@ -219,23 +170,15 @@ function makeStyles(c: ThemeColors) {
       backgroundColor: c.bgSecondary,
       marginRight: 8,
     },
-    typeBtnActive: {
-      backgroundColor: c.accent,
-    },
-    typeBtnText: {
-      fontSize: 13,
-      color: c.textSecondary,
-    },
-    typeBtnTextActive: {
-      color: '#ffffff',
-    },
+    typeBtnActive: {backgroundColor: c.accent},
+    typeBtnText: {fontSize: 13, color: c.textSecondary},
+    typeBtnTextActive: {color: '#ffffff'},
     textInput: {
       fontSize: 15,
       color: c.text,
       backgroundColor: c.bg,
       borderRadius: 8,
       padding: 12,
-      minHeight: 44,
       textAlignVertical: 'top',
     },
     submitBtn: {
@@ -245,11 +188,7 @@ function makeStyles(c: ThemeColors) {
       backgroundColor: c.accent,
       alignItems: 'center',
     },
-    submitBtnText: {
-      fontSize: 14,
-      color: '#ffffff',
-      fontWeight: '500',
-    },
+    submitBtnText: {fontSize: 14, color: '#ffffff', fontWeight: '500'},
     sectionTitle: {
       fontSize: 13,
       fontWeight: '600',
@@ -270,10 +209,7 @@ function makeStyles(c: ThemeColors) {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
     },
-    wordText: {
-      fontSize: 15,
-      color: c.text,
-    },
+    wordText: {fontSize: 15, color: c.text},
     sentenceItem: {
       flexDirection: 'row',
       alignItems: 'flex-start',
@@ -293,11 +229,7 @@ function makeStyles(c: ThemeColors) {
       flex: 1,
       marginRight: 12,
     },
-    deleteBtn: {
-      fontSize: 18,
-      color: c.textMuted,
-      paddingHorizontal: 4,
-    },
+    deleteBtn: {fontSize: 18, color: c.textMuted, paddingHorizontal: 4},
     emptyCard: {
       backgroundColor: c.card,
       borderRadius: 8,
@@ -306,9 +238,6 @@ function makeStyles(c: ThemeColors) {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
     },
-    emptyText: {
-      fontSize: 14,
-      color: c.textMuted,
-    },
+    emptyText: {fontSize: 14, color: c.textMuted},
   });
 }

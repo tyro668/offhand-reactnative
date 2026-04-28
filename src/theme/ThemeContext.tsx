@@ -1,4 +1,5 @@
-import React, {createContext, useContext, useState, useCallback} from 'react';
+import React, {createContext, useContext, useState, useCallback, useEffect, useRef} from 'react';
+import {loadConfig, saveConfig} from '../db/database';
 
 export interface ThemeColors {
   bg: string;
@@ -54,8 +55,23 @@ const ThemeContext = createContext<ThemeContextType>({
   colors: lightTheme,
 });
 
-export function ThemeProvider({children}: {children: React.ReactNode}) {
-  const [isDark, setIsDark] = useState(false);
+export function ThemeProvider({
+  children,
+  initialDark,
+}: {
+  children: React.ReactNode;
+  initialDark: boolean;
+}) {
+  const [isDark, setIsDark] = useState(initialDark);
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    saveConfig('theme', isDark);
+  }, [isDark]);
 
   const toggleTheme = useCallback(() => {
     setIsDark(prev => !prev);

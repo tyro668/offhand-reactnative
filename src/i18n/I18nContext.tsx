@@ -1,5 +1,6 @@
-import React, {createContext, useContext, useState, useCallback} from 'react';
+import React, {createContext, useContext, useState, useCallback, useEffect, useRef} from 'react';
 import {translations, type Lang} from './translations';
+import {saveConfig} from '../db/database';
 
 interface I18nContextType {
   lang: Lang;
@@ -15,8 +16,23 @@ const I18nContext = createContext<I18nContextType>({
   t: (key: string) => key,
 });
 
-export function I18nProvider({children}: {children: React.ReactNode}) {
-  const [lang, setLang] = useState<Lang>('zh');
+export function I18nProvider({
+  children,
+  initialLang,
+}: {
+  children: React.ReactNode;
+  initialLang: Lang;
+}) {
+  const [lang, setLang] = useState<Lang>(initialLang);
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    saveConfig('language', lang);
+  }, [lang]);
 
   const toggleLang = useCallback(() => {
     setLang(prev => (prev === 'zh' ? 'en' : 'zh'));
