@@ -280,7 +280,10 @@ final class OverlayManager: RCTEventEmitter {
     let line = "[OverlayManager] \(message)"
     NSLog("%@", line)
 
-    let timestamp = ISO8601DateFormatter().string(from: Date())
+    let df = DateFormatter()
+    df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+    df.locale = Locale(identifier: "en_US_POSIX")
+    let timestamp = df.string(from: Date())
     let fileLine = "\(timestamp) \(line)\n"
     logQueue.async { [weak self] in
       guard let self = self, self.ensureLogFileExists() else { return }

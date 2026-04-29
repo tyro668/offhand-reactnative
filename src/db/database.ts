@@ -580,6 +580,20 @@ export interface StatsSummary {
   monthly: Array<{label: string} & StatRow>;
 }
 
+// Helper: format local date as YYYY-MM-DD
+function localDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function localMonth(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
 export async function addStat(stat: {
   audioDurationSec: number;
   originalChars: number;
@@ -589,7 +603,7 @@ export async function addStat(stat: {
 }): Promise<void> {
   try {
     const now = new Date();
-    const date = now.toISOString().slice(0, 10);
+    const date = localDate(now);
     const year = now.getFullYear();
     const weekNum = Math.ceil(
       ((now.getTime() - new Date(year, 0, 1).getTime()) / 86400000 + new Date(year, 0, 1).getDay() + 1) / 7,
@@ -653,7 +667,7 @@ async function queryStat(where: string, params: any[] = []): Promise<StatRow> {
 
 export async function loadStatsSummary(): Promise<StatsSummary> {
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
+  const today = localDate(now);
   const month = today.slice(0, 7);
   const year = now.getFullYear();
   const weekNum = Math.ceil(
@@ -755,7 +769,7 @@ async function getMonthlyStats(months: number): Promise<Array<{label: string} & 
   for (let i = months - 1; i >= 0; i--) {
     const d = new Date();
     d.setMonth(d.getMonth() - i);
-    const month = d.toISOString().slice(0, 7);
+    const month = localMonth(d);
     const label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const [results] = await database.executeSql(
       `SELECT COALESCE(SUM(audio_duration_sec), 0) as audio_duration_sec,

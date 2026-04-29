@@ -1,13 +1,16 @@
-import React, {useState, useCallback, useRef} from 'react';
+import React, {useState, useCallback, useRef, useEffect} from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
+  NativeEventEmitter,
+  NativeModules,
 } from 'react-native';
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
+import {getModelFiles} from '../services/modelDownloader';
 
 interface ASRConfig {
   engine: string;
@@ -54,36 +57,56 @@ export default function ASRSettings({config, onSave, onBack}: Props) {
   const [language, setLanguage] = useState(config.language);
   const [sampleRate, setSampleRate] = useState(config.sampleRate);
   const [downloads, setDownloads] = useState<DownloadState>({});
-  const timers = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   const currentModels = engine === 'sensevoice' ? SENSEVOICE_MODELS : WHISPER_MODELS;
 
+  // Listen for real download progress
+  useEffect(() => {
+    const {ModelDownloader} = NativeModules;
+    if (!ModelDownloader) return;
+    const emitter = new NativeEventEmitter(ModelDownloader);
+
+    const sub1 = emitter.addListener('onDownloadProgress', (event: {modelKey: string; progress: number; fileName?: string}) => {
+      console.log('[ASR] Download progress:', event.modelKey, event.fileName, Math.floor(event.progress * 100) + '%');
+      setDownloads(prev => ({
+        ...prev,
+        [event.modelKey]: {progress: Math.floor(event.progress * 100), status: 'downloading'},
+      }));
+    });
+
+    const sub2 = emitter.addListener('onDownloadComplete', (event: {modelKey: string; success: boolean; error?: string}) => {
+      console.log('[ASR] Download complete:', event.modelKey, 'success:', event.success, event.error || '');
+      setDownloads(prev => ({
+        ...prev,
+        [event.modelKey]: {progress: event.success ? 100 : 0, status: event.success ? 'done' : 'failed'},
+      }));
+    });
+
+    return () => {
+      sub1.remove();
+      sub2.remove();
+    };
+  }, []);
+
   const startDownload = useCallback((modelKey: string) => {
+    const files = getModelFiles(modelKey);
+    console.log('[ASR] startDownload:', modelKey, 'files:', files.length);
+    if (files.length === 0) {
+      console.log('[ASR] No files defined for model:', modelKey);
+      return;
+    }
+
     setDownloads(prev => ({
       ...prev,
       [modelKey]: {progress: 0, status: 'downloading'},
     }));
 
-    // Simulate download progress
-    let progress = 0;
-    const timer = setInterval(() => {
-      progress += Math.random() * 15 + 5;
-      if (progress >= 100) {
-        progress = 100;
-        clearInterval(timer);
-        delete timers.current[modelKey];
-        setDownloads(prev => ({
-          ...prev,
-          [modelKey]: {progress: 100, status: 'done'},
-        }));
-      } else {
-        setDownloads(prev => ({
-          ...prev,
-          [modelKey]: {progress: Math.floor(progress), status: 'downloading'},
-        }));
-      }
-    }, 400);
-    timers.current[modelKey] = timer;
+    const {ModelDownloader} = NativeModules;
+    console.log('[ASR] ModelDownloader available:', !!ModelDownloader);
+    if (ModelDownloader) {
+      ModelDownloader.downloadModelFiles(modelKey, files);
+      console.log('[ASR] downloadModelFiles called');
+    }
   }, []);
 
   const getDownloadBtn = (modelKey: string) => {
