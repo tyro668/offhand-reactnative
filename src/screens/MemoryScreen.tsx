@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useCallback, useEffect} from 'react';
 import {
   View,
   Text,
@@ -6,136 +6,205 @@ import {
   TouchableOpacity,
   ScrollView,
   TextInput,
+  Alert,
+  NativeModules,
 } from 'react-native';
-import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
+import {
+  loadMemoryCorpus,
+  addMemoryCorpus,
+  updateMemoryCorpus,
+  deleteMemoryCorpus,
+  type MemoryCorpusRow,
+} from '../db/database';
 
-interface Word {
-  id: string;
-  text: string;
-  type: 'word' | 'sentence';
-}
+const {FilePicker} = NativeModules;
 
 export default function MemoryScreen() {
-  const {t} = useI18n();
   const {colors} = useTheme();
   const s = makeStyles(colors);
+  const [items, setItems] = useState<MemoryCorpusRow[]>([]);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
 
-  const [words, setWords] = useState<Word[]>([
-    {id: '1', text: '离线', type: 'word'},
-    {id: '2', text: 'ASR', type: 'word'},
-    {id: '3', text: '语音识别是一种将人类语音转换为文字的技术', type: 'sentence'},
-  ]);
-  const [inputText, setInputText] = useState('');
-  const [inputType, setInputType] = useState<'word' | 'sentence'>('word');
-  const [showInput, setShowInput] = useState(false);
+  const refresh = useCallback(async () => {
+    try {
+      const rows = await loadMemoryCorpus();
+      setItems(rows);
+    } catch (e) {
+      console.warn('Memory corpus load error:', e);
+    }
+  }, []);
 
-  const addWord = () => {
-    if (!inputText.trim()) return;
-    setWords(prev => [
-      ...prev,
-      {id: Date.now().toString(), text: inputText.trim(), type: inputType},
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const handlePickMarkdown = async () => {
+    try {
+      const result = await FilePicker.pickMarkdownFile();
+      if (!result || !result.content) return;
+      await addMemoryCorpus({
+        type: 'markdown',
+        title: result.name || 'Untitled',
+        content: result.content,
+        sourcePath: result.path || null,
+      });
+      refresh();
+    } catch (e) {
+      console.warn('FilePicker error:', e);
+    }
+  };
+
+  const handleToggle = async (id: number, currentEnabled: boolean) => {
+    await updateMemoryCorpus(id, {enabled: !currentEnabled});
+    refresh();
+  };
+
+  const handleDelete = (id: number) => {
+    Alert.alert('确认删除', '确定要删除这条记录吗？', [
+      {text: '取消', style: 'cancel'},
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: async () => {
+          await deleteMemoryCorpus(id);
+          refresh();
+        },
+      },
     ]);
-    setInputText('');
-    setShowInput(false);
   };
 
-  const deleteWord = (id: string) => {
-    setWords(prev => prev.filter(w => w.id !== id));
+  const handleStartEdit = (item: MemoryCorpusRow) => {
+    setEditingId(item.id);
+    setEditTitle(item.title);
+    setEditContent(item.content);
   };
 
-  const wordList = words.filter(w => w.type === 'word');
-  const sentenceList = words.filter(w => w.type === 'sentence');
+  const handleSaveEdit = async () => {
+    if (editingId === null) return;
+    await updateMemoryCorpus(editingId, {
+      title: editTitle,
+      content: editContent,
+    });
+    setEditingId(null);
+    refresh();
+  };
+
+  const markdownItems = items.filter(i => i.type === 'markdown');
+  const textItems = items.filter(i => i.type === 'history');
+
+  const renderItem = (item: MemoryCorpusRow) => {
+    const isEditing = editingId === item.id;
+    const preview = item.type === 'markdown'
+      ? item.content.slice(0, 200)
+      : item.content;
+    const enabled = item.enabled === 1;
+
+    return (
+      <View key={item.id} style={s.item}>
+        <View style={s.itemTop}>
+          <TouchableOpacity
+            style={s.statusDot}
+            onPress={() => handleToggle(item.id, enabled)}>
+            <View style={[s.dot, enabled ? s.dotOn : s.dotOff]} />
+          </TouchableOpacity>
+
+          <View style={s.itemBody}>
+            {isEditing ? (
+              <>
+                <TextInput
+                  style={s.editTitle}
+                  value={editTitle}
+                  onChangeText={setEditTitle}
+                  placeholderTextColor={colors.textMuted}
+                />
+                <TextInput
+                  style={s.editContent}
+                  value={editContent}
+                  onChangeText={setEditContent}
+                  multiline
+                  textAlignVertical="top"
+                  placeholderTextColor={colors.textMuted}
+                />
+                <View style={s.editActions}>
+                  <TouchableOpacity style={s.saveBtn} onPress={handleSaveEdit}>
+                    <Text style={s.saveBtnText}>保存</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={s.cancelBtn}
+                    onPress={() => setEditingId(null)}>
+                    <Text style={s.cancelBtnText}>取消</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={[s.itemTitle, !enabled && s.itemTextDisabled]}>
+                  {item.title}
+                </Text>
+                <Text style={[s.itemPreview, !enabled && s.itemTextDisabled]} numberOfLines={3}>
+                  {preview}
+                </Text>
+                {item.type === 'markdown' && item.content.length > 200 && (
+                  <Text style={s.moreHint}>... 点击编辑查看全文</Text>
+                )}
+              </>
+            )}
+          </View>
+
+          {!isEditing && (
+            <View style={s.actions}>
+              <TouchableOpacity style={s.actionBtn} onPress={() => handleStartEdit(item)}>
+                <Text style={s.actionText}>编辑</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.actionBtn} onPress={() => handleToggle(item.id, enabled)}>
+                <Text style={s.actionText}>{enabled ? '禁用' : '启用'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.actionBtn} onPress={() => handleDelete(item.id)}>
+                <Text style={[s.actionText, s.delAction]}>删除</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  };
 
   return (
     <View style={s.container}>
+      <View style={s.header}>
+        <Text style={s.title}>记忆库</Text>
+        <TouchableOpacity style={s.addBtn} onPress={handlePickMarkdown}>
+          <Text style={s.addBtnText}>+ MD</Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView
         style={s.scroll}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={true}
         contentContainerStyle={s.scrollContent}>
-        <View style={s.toolbar}>
-          <TouchableOpacity
-            onPress={() => setShowInput(!showInput)}
-            style={s.addBtn}>
-            <Text style={s.addBtnText}>
-              {showInput ? t('memoryCancel') : t('memoryAddBtn')}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {markdownItems.length > 0 && (
+          <Text style={s.sectionTitle}>Markdown 文件</Text>
+        )}
+        {markdownItems.map(renderItem)}
 
-        {showInput && (
-          <View style={s.inputCard}>
-            <View style={s.typeRow}>
-              <TouchableOpacity
-                style={[s.typeBtn, inputType === 'word' && s.typeBtnActive]}
-                onPress={() => setInputType('word')}>
-                <Text style={[s.typeBtnText, inputType === 'word' && s.typeBtnTextActive]}>
-                  {t('memoryWord')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.typeBtn, inputType === 'sentence' && s.typeBtnActive]}
-                onPress={() => setInputType('sentence')}>
-                <Text style={[s.typeBtnText, inputType === 'sentence' && s.typeBtnTextActive]}>
-                  {t('memorySentence')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <TextInput
-              style={[s.textInput, {minHeight: inputType === 'sentence' ? 80 : 44}]}
-              value={inputText}
-              onChangeText={setInputText}
-              placeholder={
-                inputType === 'word'
-                  ? t('memoryWordPlaceholder')
-                  : t('memorySentencePlaceholder')
-              }
-              placeholderTextColor={colors.textMuted}
-              multiline={inputType === 'sentence'}
-              autoFocus
-            />
-            <TouchableOpacity style={s.submitBtn} onPress={addWord}>
-              <Text style={s.submitBtnText}>{t('memoryAdd')}</Text>
-            </TouchableOpacity>
+        {textItems.length > 0 && (
+          <Text style={[s.sectionTitle, markdownItems.length > 0 ? {marginTop: 24} : {}]}>
+            文本语料
+          </Text>
+        )}
+        {textItems.map(renderItem)}
+
+        {items.length === 0 && (
+          <View style={s.empty}>
+            <Text style={s.emptyText}>暂无语料</Text>
+            <Text style={s.emptyHint}>点击右上角 + MD 导入 markdown 文件</Text>
           </View>
         )}
 
-        <Text style={s.sectionTitle}>
-          {t('memoryWord')} ({wordList.length})
-        </Text>
-        {wordList.length === 0 ? (
-          <View style={s.emptyCard}>
-            <Text style={s.emptyText}>{t('memoryEmptyWords')}</Text>
-          </View>
-        ) : (
-          wordList.map(w => (
-            <View key={w.id} style={s.wordItem}>
-              <Text style={s.wordText}>{w.text}</Text>
-              <TouchableOpacity onPress={() => deleteWord(w.id)}>
-                <Text style={s.deleteBtn}>×</Text>
-              </TouchableOpacity>
-            </View>
-          ))
-        )}
-
-        <Text style={[s.sectionTitle, {marginTop: 24}]}>
-          {t('memorySentence')} ({sentenceList.length})
-        </Text>
-        {sentenceList.length === 0 ? (
-          <View style={s.emptyCard}>
-            <Text style={s.emptyText}>{t('memoryEmptySentences')}</Text>
-          </View>
-        ) : (
-          sentenceList.map(w => (
-            <View key={w.id} style={s.sentenceItem}>
-              <Text style={s.sentenceText}>{w.text}</Text>
-              <TouchableOpacity onPress={() => deleteWord(w.id)}>
-                <Text style={s.deleteBtn}>×</Text>
-              </TouchableOpacity>
-            </View>
-          ))
-        )}
-        <View style={{height: 40}} />
+        <View style={{height: 24}} />
       </ScrollView>
     </View>
   );
@@ -144,100 +213,103 @@ export default function MemoryScreen() {
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
     container: {flex: 1, backgroundColor: c.bg},
-    scroll: {flex: 1},
-    scrollContent: {paddingHorizontal: 20, paddingTop: 16},
-    toolbar: {flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 12},
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 28,
+      paddingTop: 24,
+      paddingBottom: 14,
+    },
+    title: {fontSize: 26, fontWeight: '700', color: c.text, letterSpacing: 2},
     addBtn: {
       paddingHorizontal: 16,
       paddingVertical: 8,
       borderRadius: 8,
       backgroundColor: c.accent,
     },
-    addBtnText: {fontSize: 13, color: '#ffffff', fontWeight: '500'},
-    inputCard: {
-      backgroundColor: c.card,
-      borderRadius: 12,
-      padding: 16,
-      marginBottom: 16,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.border,
-    },
-    typeRow: {flexDirection: 'row', marginBottom: 12},
-    typeBtn: {
-      paddingHorizontal: 20,
-      paddingVertical: 8,
-      borderRadius: 20,
-      backgroundColor: c.bgSecondary,
-      marginRight: 8,
-    },
-    typeBtnActive: {backgroundColor: c.accent},
-    typeBtnText: {fontSize: 13, color: c.textSecondary},
-    typeBtnTextActive: {color: '#ffffff'},
-    textInput: {
-      fontSize: 15,
-      color: c.text,
-      backgroundColor: c.bg,
-      borderRadius: 8,
-      padding: 12,
-      textAlignVertical: 'top',
-    },
-    submitBtn: {
-      marginTop: 12,
-      paddingVertical: 10,
-      borderRadius: 8,
-      backgroundColor: c.accent,
-      alignItems: 'center',
-    },
-    submitBtnText: {fontSize: 14, color: '#ffffff', fontWeight: '500'},
+    addBtnText: {fontSize: 13, color: '#ffffff', fontWeight: '600'},
+    scroll: {flex: 1},
+    scrollContent: {paddingHorizontal: 20},
     sectionTitle: {
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: '600',
       color: c.textMuted,
       marginBottom: 8,
       textTransform: 'uppercase',
       letterSpacing: 1,
     },
-    wordItem: {
-      flexDirection: 'row',
+
+    item: {
+      backgroundColor: c.card,
+      borderRadius: 10,
+      padding: 14,
+      marginBottom: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+    },
+    itemTop: {flexDirection: 'row'},
+    statusDot: {paddingTop: 4, paddingRight: 12},
+    dot: {width: 10, height: 10, borderRadius: 5},
+    dotOn: {backgroundColor: '#4caf50'},
+    dotOff: {backgroundColor: c.border},
+    itemBody: {flex: 1},
+    itemTitle: {fontSize: 14, fontWeight: '600', color: c.text, marginBottom: 4},
+    itemPreview: {fontSize: 13, color: c.textSecondary, lineHeight: 20},
+    itemTextDisabled: {opacity: 0.4},
+    moreHint: {fontSize: 11, color: c.textMuted, marginTop: 4},
+
+    actions: {marginLeft: 10},
+    actionBtn: {
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: c.border,
+      marginBottom: 4,
       alignItems: 'center',
-      justifyContent: 'space-between',
-      backgroundColor: c.card,
-      paddingHorizontal: 16,
-      paddingVertical: 13,
-      borderRadius: 8,
-      marginBottom: 6,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.border,
     },
-    wordText: {fontSize: 15, color: c.text},
-    sentenceItem: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      justifyContent: 'space-between',
-      backgroundColor: c.card,
-      paddingHorizontal: 16,
-      paddingVertical: 13,
-      borderRadius: 8,
-      marginBottom: 6,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.border,
-    },
-    sentenceText: {
+    actionText: {fontSize: 11, color: c.textSecondary},
+    delAction: {color: c.danger},
+
+    editTitle: {
       fontSize: 14,
+      fontWeight: '600',
       color: c.text,
-      lineHeight: 22,
-      flex: 1,
-      marginRight: 12,
+      backgroundColor: c.bg,
+      borderRadius: 6,
+      padding: 10,
+      marginBottom: 8,
     },
-    deleteBtn: {fontSize: 18, color: c.textMuted, paddingHorizontal: 4},
-    emptyCard: {
-      backgroundColor: c.card,
+    editContent: {
+      fontSize: 13,
+      color: c.text,
+      backgroundColor: c.bg,
       borderRadius: 8,
-      padding: 24,
-      alignItems: 'center',
-      borderWidth: StyleSheet.hairlineWidth,
+      padding: 12,
+      minHeight: 120,
+      textAlignVertical: 'top',
+    },
+    editActions: {flexDirection: 'row', marginTop: 10},
+    saveBtn: {
+      paddingHorizontal: 20,
+      paddingVertical: 8,
+      borderRadius: 6,
+      backgroundColor: c.accent,
+      marginRight: 8,
+    },
+    saveBtnText: {fontSize: 13, color: '#ffffff', fontWeight: '500'},
+    cancelBtn: {
+      paddingHorizontal: 20,
+      paddingVertical: 8,
+      borderRadius: 6,
+      borderWidth: 1,
       borderColor: c.border,
     },
-    emptyText: {fontSize: 14, color: c.textMuted},
+    cancelBtnText: {fontSize: 13, color: c.textSecondary},
+
+    empty: {paddingVertical: 60, alignItems: 'center'},
+    emptyText: {fontSize: 15, color: c.textMuted},
+    emptyHint: {fontSize: 12, color: c.textMuted, marginTop: 8},
   });
 }
