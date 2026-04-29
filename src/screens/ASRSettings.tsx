@@ -32,9 +32,8 @@ const SAMPLE_RATES = [
 ];
 
 const SENSEVOICE_MODELS = [
-  {key: 'senseVoiceSmall', size: '~90MB'},
-  {key: 'senseVoiceMedium', size: '~250MB'},
-  {key: 'senseVoiceLarge', size: '~600MB'},
+  {key: 'senseVoiceSmall', size: '~240MB'},
+  {key: 'senseVoiceLarge', size: '~940MB'},
 ];
 
 const WHISPER_MODELS = [

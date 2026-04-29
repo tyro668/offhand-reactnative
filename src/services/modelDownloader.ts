@@ -9,59 +9,31 @@ interface ModelFiles {
   files: Array<{name: string; urls: string[]}>;
 }
 
+// SenseVoice: the upstream HuggingFace repo only ships two variants of the
+// same multilingual model — model.int8.onnx (~239MB, quantized) and
+// model.onnx (~938MB, full precision). There is no small/medium/large.
+// We expose two entries:
+//   senseVoiceSmall → int8 quantized
+//   senseVoiceLarge → full precision
+const SENSE_VOICE_REPO =
+  'csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17';
+const senseVoiceMirrors = (file: string): string[] => [
+  `https://hf-mirror.com/${SENSE_VOICE_REPO}/resolve/main/${file}`,
+  `https://huggingface.co/${SENSE_VOICE_REPO}/resolve/main/${file}`,
+];
+const senseVoiceTokens = {name: 'tokens.txt', urls: senseVoiceMirrors('tokens.txt')};
+
 const MODEL_DEFS: Record<string, ModelFiles> = {
   senseVoiceSmall: {
     files: [
-      {
-        name: 'model.onnx',
-        urls: [
-          'https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.onnx',
-          'https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.onnx',
-        ],
-      },
-      {
-        name: 'tokens.txt',
-        urls: [
-          'https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt',
-          'https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt',
-        ],
-      },
-    ],
-  },
-  senseVoiceMedium: {
-    files: [
-      {
-        name: 'model.onnx',
-        urls: [
-          'https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.onnx',
-          'https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.onnx',
-        ],
-      },
-      {
-        name: 'tokens.txt',
-        urls: [
-          'https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt',
-          'https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt',
-        ],
-      },
+      {name: 'model.int8.onnx', urls: senseVoiceMirrors('model.int8.onnx')},
+      senseVoiceTokens,
     ],
   },
   senseVoiceLarge: {
     files: [
-      {
-        name: 'model.onnx',
-        urls: [
-          'https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.onnx',
-          'https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.onnx',
-        ],
-      },
-      {
-        name: 'tokens.txt',
-        urls: [
-          'https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt',
-          'https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt',
-        ],
-      },
+      {name: 'model.onnx', urls: senseVoiceMirrors('model.onnx')},
+      senseVoiceTokens,
     ],
   },
   ...buildWhisperEntries(),
