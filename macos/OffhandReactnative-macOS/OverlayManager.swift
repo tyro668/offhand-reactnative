@@ -32,13 +32,11 @@ final class OverlayManager: RCTEventEmitter {
   private var keyEventLogCount = 0
 
   private static let logDirectoryURL: URL = {
-    let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
-      ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library", isDirectory: true)
-    return libraryURL.appendingPathComponent("Logs/OffhandReactnative", isDirectory: true)
+    URL(fileURLWithPath: AppPaths.logsDirectory(), isDirectory: true)
   }()
 
   private static let logFileURL: URL = {
-    logDirectoryURL.appendingPathComponent("OffhandReactnative.log", isDirectory: false)
+    URL(fileURLWithPath: AppPaths.logFilePath(), isDirectory: false)
   }()
 
   // MARK: - RN module setup
@@ -497,8 +495,23 @@ final class OverlayManager: RCTEventEmitter {
     log("recording \(isRecording ? "started" : "stopped"); reason=\(reason).")
     if isRecording {
       currentOverlayState = "recording"
-      currentStateLabel = nil
+      currentStateLabel = "等待录音"
       showOverlay()
+    } else if hasListeners && reason.hasPrefix("fn ") {
+      currentOverlayState = "transcribing"
+      currentStateLabel = "录音转文字"
+      stopDurationAndLevelTimers()
+      recordingStartedAt = nil
+      if overlayPanel == nil || overlayPanel?.isVisible == false {
+        showOverlay()
+      } else {
+        overlayView?.update(
+          state: currentOverlayState,
+          duration: "00:00",
+          level: simulatedLevel,
+          stateLabel: currentStateLabel
+        )
+      }
     } else {
       hideOverlay()
     }

@@ -15,6 +15,12 @@
 		AA0000000000000000B00001 /* OverlayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00001 /* OverlayManager.swift */; };
 		AA0000000000000000B00002 /* OverlayManagerBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00002 /* OverlayManagerBridge.m */; };
 		AA0000000000000000B00004 /* OverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00004 /* OverlayView.swift */; };
+		AA0000000000000000B00005 /* AudioRecorder.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00006 /* AudioRecorder.m */; };
+		AA0000000000000000B00006 /* TextInserter.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00008 /* TextInserter.m */; };
+		AA0000000000000000B00007 /* SpeechTranscriber.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00010 /* SpeechTranscriber.m */; };
+		AA0000000000000000B00008 /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00011 /* Speech.framework */; };
+		AA0000000000000000B00009 /* AppPaths.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00013 /* AppPaths.m */; };
+		AA0000000000000000B00010 /* MarkdownFileImporter.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00015 /* MarkdownFileImporter.m */; };
 		89DD7BFA891383EF8A79E499 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5AF3B7FC1C7CC7FBAFF7B89C /* PrivacyInfo.xcprivacy */; };
 		B7D471A0B3898C23F686E48A /* libPods-OffhandReactnative-macOS.a in Frameworks */ = {isa = PBXBuildFile; fileRef = DA06A7EBE09D692A9FA8CDCD /* libPods-OffhandReactnative-macOS.a */; };
 /* End PBXBuildFile section */
@@ -34,6 +40,17 @@
 		AA0000000000000000A00002 /* OverlayManagerBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = OverlayManagerBridge.m; sourceTree = "<group>"; };
 		AA0000000000000000A00003 /* OffhandReactnative-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OffhandReactnative-Bridging-Header.h"; sourceTree = "<group>"; };
 		AA0000000000000000A00004 /* OverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayView.swift; sourceTree = "<group>"; };
+		AA0000000000000000A00005 /* AudioRecorder.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AudioRecorder.h; sourceTree = "<group>"; };
+		AA0000000000000000A00006 /* AudioRecorder.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AudioRecorder.m; sourceTree = "<group>"; };
+		AA0000000000000000A00007 /* TextInserter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TextInserter.h; sourceTree = "<group>"; };
+		AA0000000000000000A00008 /* TextInserter.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TextInserter.m; sourceTree = "<group>"; };
+		AA0000000000000000A00009 /* SpeechTranscriber.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SpeechTranscriber.h; sourceTree = "<group>"; };
+		AA0000000000000000A00010 /* SpeechTranscriber.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SpeechTranscriber.m; sourceTree = "<group>"; };
+		AA0000000000000000A00011 /* Speech.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Speech.framework; path = System/Library/Frameworks/Speech.framework; sourceTree = SDKROOT; };
+		AA0000000000000000A00012 /* AppPaths.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppPaths.h; sourceTree = "<group>"; };
+		AA0000000000000000A00013 /* AppPaths.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppPaths.m; sourceTree = "<group>"; };
+		AA0000000000000000A00014 /* MarkdownFileImporter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MarkdownFileImporter.h; sourceTree = "<group>"; };
+		AA0000000000000000A00015 /* MarkdownFileImporter.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MarkdownFileImporter.m; sourceTree = "<group>"; };
 		551E6587DD4939B081E21B2D /* Pods-OffhandReactnative-macOS.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-OffhandReactnative-macOS.release.xcconfig"; path = "Target Support Files/Pods-OffhandReactnative-macOS/Pods-OffhandReactnative-macOS.release.xcconfig"; sourceTree = "<group>"; };
 		5AF3B7FC1C7CC7FBAFF7B89C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		DA06A7EBE09D692A9FA8CDCD /* libPods-OffhandReactnative-macOS.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-OffhandReactnative-macOS.a"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -52,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA0000000000000000B00008 /* Speech.framework in Frameworks */,
 				B7D471A0B3898C23F686E48A /* libPods-OffhandReactnative-macOS.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -62,6 +80,7 @@
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				AA0000000000000000A00011 /* Speech.framework */,
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
 				DA06A7EBE09D692A9FA8CDCD /* libPods-OffhandReactnative-macOS.a */,
 			);
@@ -81,7 +100,17 @@
 				AA0000000000000000A00001 /* OverlayManager.swift */,
 				AA0000000000000000A00002 /* OverlayManagerBridge.m */,
 				AA0000000000000000A00003 /* OffhandReactnative-Bridging-Header.h */,
+				AA0000000000000000A00012 /* AppPaths.h */,
+				AA0000000000000000A00013 /* AppPaths.m */,
+				AA0000000000000000A00014 /* MarkdownFileImporter.h */,
+				AA0000000000000000A00015 /* MarkdownFileImporter.m */,
 				AA0000000000000000A00004 /* OverlayView.swift */,
+				AA0000000000000000A00005 /* AudioRecorder.h */,
+				AA0000000000000000A00006 /* AudioRecorder.m */,
+				AA0000000000000000A00007 /* TextInserter.h */,
+				AA0000000000000000A00008 /* TextInserter.m */,
+				AA0000000000000000A00009 /* SpeechTranscriber.h */,
+				AA0000000000000000A00010 /* SpeechTranscriber.m */,
 			);
 			path = "OffhandReactnative-macOS";
 			sourceTree = "<group>";
@@ -344,6 +373,11 @@
 				AA0000000000000000B00001 /* OverlayManager.swift in Sources */,
 				AA0000000000000000B00002 /* OverlayManagerBridge.m in Sources */,
 				AA0000000000000000B00004 /* OverlayView.swift in Sources */,
+				AA0000000000000000B00005 /* AudioRecorder.m in Sources */,
+				AA0000000000000000B00006 /* TextInserter.m in Sources */,
+				AA0000000000000000B00007 /* SpeechTranscriber.m in Sources */,
+				AA0000000000000000B00009 /* AppPaths.m in Sources */,
+				AA0000000000000000B00010 /* MarkdownFileImporter.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -198,10 +198,10 @@ final class OverlayView: NSView {
 
   private func defaultStatusText(for state: String) -> String {
     switch state {
-    case "starting":          return "麦克风启动中"
-    case "recording":         return "录音中"
-    case "transcribing":      return "语音转换中"
-    case "enhancing":         return "文字整理中"
+    case "starting":          return "等待录音"
+    case "recording":         return "等待录音"
+    case "transcribing":      return "录音转文字"
+    case "enhancing":         return "文本增强"
     case "transcribe_failed": return "语音转录失败"
     default:                  return ""
     }

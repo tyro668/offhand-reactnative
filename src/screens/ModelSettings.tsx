@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
+import {DEFAULT_SYSTEM_PROMPT} from '../models/defaultPrompt';
+import {testTextModelConnection} from '../services/textEnhancement';
 import builtinProviders from '../models/textModels.json';
 
 interface TextModelConfig {
@@ -17,15 +19,10 @@ interface TextModelConfig {
   model: string;
   baseUrl: string;
   apiKey: string;
-  style: string;
-  maxTokens: string;
-  thinking: boolean;
+  prompt: string;
 }
 
-interface ProviderModel {
-  id: string;
-  name: string;
-}
+interface ProviderModel {id: string; name: string}
 
 interface ProviderEntry {
   provider: string;
@@ -40,16 +37,10 @@ interface Props {
   onBack: () => void;
 }
 
+type TestState = 'idle' | 'testing' | 'success' | 'error';
+
 const PROVIDERS: ProviderEntry[] = builtinProviders as ProviderEntry[];
 const CUSTOM_PROVIDER = 'custom';
-
-const STYLES = ['styleFormal', 'styleCasual', 'styleCreative'];
-const TOKENS = [
-  {key: '256', labelKey: 'maxTokens256'},
-  {key: '512', labelKey: 'maxTokens512'},
-  {key: '1024', labelKey: 'maxTokens1024'},
-  {key: '2048', labelKey: 'maxTokens2048'},
-];
 
 function DropdownPicker({
   label,
@@ -93,10 +84,7 @@ function DropdownPicker({
                 }}>
                 <Text
                   numberOfLines={1}
-                  style={[
-                    s.dropdownItemText,
-                    item === value && s.dropdownItemTextActive,
-                  ]}>
+                  style={[s.dropdownItemText, item === value && s.dropdownItemTextActive]}>
                   {renderOption ? renderOption(item) : item}
                 </Text>
                 {item === value && <Text style={s.check}>✓</Text>}
@@ -118,28 +106,72 @@ export default function ModelSettings({config, onSave, onBack}: Props) {
   const [model, setModel] = useState(config.model);
   const [apiKey, setApiKey] = useState(config.apiKey);
   const [baseUrl, setBaseUrl] = useState(config.baseUrl);
-  const [style, setStyle] = useState(config.style);
-  const [maxTokens, setMaxTokens] = useState(config.maxTokens);
-  const [thinking, setThinking] = useState(config.thinking);
+  const [prompt, setPrompt] = useState(config.prompt || DEFAULT_SYSTEM_PROMPT);
+  const [useCustomPrompt, setUseCustomPrompt] = useState(
+    config.prompt !== DEFAULT_SYSTEM_PROMPT && config.prompt !== '',
+  );
+  const [testState, setTestState] = useState<TestState>('idle');
+  const [testLatencyMs, setTestLatencyMs] = useState<number | null>(null);
+  const [testMessage, setTestMessage] = useState('');
   const [errMsg, setErrMsg] = useState('');
+  const savedCustomPrompt = useRef(
+    config.prompt && config.prompt !== DEFAULT_SYSTEM_PROMPT
+      ? config.prompt
+      : '',
+  );
+  const testResultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleError = (ctx: string, e: unknown) => {
     const msg = e instanceof Error ? e.message : String(e);
     setErrMsg(`[${ctx}] ${msg}`);
   };
 
+  const clearTestResultTimer = () => {
+    if (testResultTimerRef.current) {
+      clearTimeout(testResultTimerRef.current);
+      testResultTimerRef.current = null;
+    }
+  };
+
+  const resetTestResult = () => {
+    clearTestResultTimer();
+    setTestState('idle');
+    setTestLatencyMs(null);
+    setTestMessage('');
+  };
+
+  const scheduleTestResultReset = (expectedErrMsg?: string) => {
+    clearTestResultTimer();
+    testResultTimerRef.current = setTimeout(() => {
+      testResultTimerRef.current = null;
+      setTestState('idle');
+      setTestLatencyMs(null);
+      setTestMessage('');
+      if (expectedErrMsg) {
+        setErrMsg(current => (current === expectedErrMsg ? '' : current));
+      }
+    }, 5000);
+  };
+
+  useEffect(() => {
+    return () => clearTestResultTimer();
+  }, []);
+
   const isCustom = provider === CUSTOM_PROVIDER;
-  const activeProvider = PROVIDERS.find(p => p.provider === provider);
+  const activeProvider = PROVIDERS.find(pr => pr.provider === provider);
+  const resolvedBaseUrl = isCustom ? baseUrl : (baseUrl || activeProvider?.baseUrl || '');
   const providerOptions = [...PROVIDERS.map(p => p.provider), CUSTOM_PROVIDER];
 
   const modelOptions: string[] = isCustom
     ? []
-    : activeProvider?.models.map(m => m.id) ?? [];
+    : (activeProvider?.models.map(m => m.id) ?? []);
 
   const handleProviderChange = (val: string) => {
     try {
       setErrMsg('');
+      resetTestResult();
       setProvider(val);
+      setApiKey('');  // Clear key when switching providers
       if (val === CUSTOM_PROVIDER) {
         setModel('');
         setBaseUrl('');
@@ -156,20 +188,48 @@ export default function ModelSettings({config, onSave, onBack}: Props) {
   };
 
   const providerLabel = (val: string) => {
-    if (val === CUSTOM_PROVIDER) {
-      return t('textCustom');
-    }
-    const p = PROVIDERS.find(pr => pr.provider === val);
-    return p ? p.provider : val;
+    if (val === CUSTOM_PROVIDER) return t('textCustom');
+    return PROVIDERS.find(pr => pr.provider === val)?.provider ?? val;
   };
 
   const modelLabel = (val: string) => {
     const p = PROVIDERS.find(pr => pr.provider === provider);
-    if (!p) {
-      return val;
+    if (!p) return val;
+    return p.models.find(mm => mm.id === val)?.name ?? val;
+  };
+
+  const handleTestConnection = async () => {
+    clearTestResultTimer();
+    setErrMsg('');
+    setTestState('testing');
+    setTestLatencyMs(null);
+    setTestMessage(t('testingConnection'));
+
+    try {
+      const result = await testTextModelConnection({
+        provider,
+        model: model.trim(),
+        baseUrl: resolvedBaseUrl.trim(),
+        apiKey: apiKey.trim(),
+        prompt: useCustomPrompt ? prompt : DEFAULT_SYSTEM_PROMPT,
+      });
+      setTestState('success');
+      setTestLatencyMs(result.latencyMs);
+      setTestMessage(
+        result.outputText
+          ? `${t('testConnectionSuccess')} · ${result.outputText.slice(0, 40)}`
+          : t('testConnectionSuccess'),
+      );
+      scheduleTestResultReset();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const errorBanner = `[${t('testConnection')}] ${msg}`;
+      setTestState('error');
+      setTestLatencyMs(null);
+      setTestMessage(`${t('testConnectionFailed')}：${msg}`);
+      setErrMsg(errorBanner);
+      scheduleTestResultReset(errorBanner);
     }
-    const m = p.models.find(mm => mm.id === val);
-    return m ? m.name : val;
   };
 
   return (
@@ -181,7 +241,13 @@ export default function ModelSettings({config, onSave, onBack}: Props) {
         <Text style={s.title}>{t('textModelTitle')}</Text>
         <TouchableOpacity
           onPress={() =>
-            onSave({provider, model, baseUrl, apiKey, style, maxTokens, thinking})
+            onSave({
+              provider,
+              model,
+              baseUrl: resolvedBaseUrl,
+              apiKey,
+              prompt: useCustomPrompt ? prompt : DEFAULT_SYSTEM_PROMPT,
+            })
           }>
           <Text style={s.saveText}>{t('save')}</Text>
         </TouchableOpacity>
@@ -196,17 +262,14 @@ export default function ModelSettings({config, onSave, onBack}: Props) {
               style={s.errorCopyBtn}>
               <Text style={s.errorCopyText}>Copy</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setErrMsg('')}
-              style={s.errorCloseBtn}>
+            <TouchableOpacity onPress={() => setErrMsg('')} style={s.errorCloseBtn}>
               <Text style={s.errorCloseText}>×</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
 
-      <ScrollView style={s.body} showsVerticalScrollIndicator={false}>
-        {/* Provider dropdown */}
+      <ScrollView style={s.body} showsVerticalScrollIndicator={true}>
         <DropdownPicker
           label={t('textProvider')}
           value={provider}
@@ -217,63 +280,68 @@ export default function ModelSettings({config, onSave, onBack}: Props) {
           s={s}
         />
 
-        {/* Model dropdown — hidden when custom */}
         {!isCustom && (
           <DropdownPicker
             label={t('textModel')}
             value={model}
             options={modelOptions}
-            onSelect={setModel}
+            onSelect={val => {
+              resetTestResult();
+              setModel(val);
+            }}
             renderOption={modelLabel}
             colors={colors}
             s={s}
           />
         )}
 
-        {/* Custom: baseUrl */}
         {isCustom && (
-          <View style={s.inputGroup}>
-            <Text style={s.inputLabel}>{t('textBaseUrl')}</Text>
-            <TextInput
-              style={s.textInput}
-              value={baseUrl}
-              onChangeText={setBaseUrl}
-              placeholder={t('textBaseUrlPlaceholder')}
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
+          <>
+            <View style={s.inputGroup}>
+              <Text style={s.inputLabel}>{t('textBaseUrl')}</Text>
+              <TextInput
+                style={s.textInput}
+                value={baseUrl}
+                onChangeText={text => {
+                  resetTestResult();
+                  setBaseUrl(text);
+                }}
+                placeholder={t('textBaseUrlPlaceholder')}
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+            <View style={s.inputGroup}>
+              <Text style={s.inputLabel}>{t('modelId')}</Text>
+              <TextInput
+                style={s.textInput}
+                value={model}
+                onChangeText={text => {
+                  resetTestResult();
+                  setModel(text);
+                }}
+                placeholder="gpt-4o"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          </>
         )}
 
-        {/* Custom: model id */}
-        {isCustom && (
-          <View style={s.inputGroup}>
-            <Text style={s.inputLabel}>{t('modelId')}</Text>
-            <TextInput
-              style={s.textInput}
-              value={model}
-              onChangeText={setModel}
-              placeholder="gpt-4o"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-        )}
-
-        {/* API key (always shown for custom, optional for built-in) */}
         <View style={s.inputGroup}>
           <Text style={s.inputLabel}>
             {t('textApiKey')}
-            {!isCustom && (
-              <Text style={s.optional}>  ({t('noShortcut')})</Text>
-            )}
+            {!isCustom && <Text style={s.optional}>  ({t('noShortcut')})</Text>}
           </Text>
           <TextInput
             style={s.textInput}
             value={apiKey}
-            onChangeText={setApiKey}
+            onChangeText={text => {
+              resetTestResult();
+              setApiKey(text);
+            }}
             placeholder={t('textApiKeyPlaceholder')}
             placeholderTextColor={colors.textMuted}
             secureTextEntry={apiKey.length > 0}
@@ -282,47 +350,92 @@ export default function ModelSettings({config, onSave, onBack}: Props) {
           />
         </View>
 
-        {/* Style */}
-        <Text style={s.sectionLabel}>{t('textStyle')}</Text>
-        <View style={s.chipRow}>
-          {STYLES.map(st => (
+        <View style={s.testPanel}>
+          <View style={s.testHeader}>
+            <View style={s.testCopy}>
+              <Text style={s.testTitle}>{t('testConnection')}</Text>
+              <Text style={s.testHint}>{t('testConnectionHint')}</Text>
+            </View>
             <TouchableOpacity
-              key={st}
-              style={[s.chip, style === st && s.chipSelected]}
-              onPress={() => setStyle(st)}>
-              <Text style={[s.chipText, style === st && s.chipTextSelected]}>
-                {t(st)}
+              style={[
+                s.testButton,
+                testState === 'testing' && s.testButtonDisabled,
+              ]}
+              disabled={testState === 'testing'}
+              onPress={handleTestConnection}>
+              <Text style={s.testButtonText}>
+                {testState === 'testing' ? t('testingConnection') : t('testConnection')}
               </Text>
             </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Max tokens */}
-        <Text style={s.sectionLabel}>{t('textMaxTokens')}</Text>
-        <View style={s.chipRow}>
-          {TOKENS.map(tk => (
-            <TouchableOpacity
-              key={tk.key}
-              style={[s.chip, maxTokens === tk.key && s.chipSelected]}
-              onPress={() => setMaxTokens(tk.key)}>
-              <Text style={[s.chipText, maxTokens === tk.key && s.chipTextSelected]}>
-                {t(tk.labelKey)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Thinking mode */}
-        <Text style={s.sectionLabel}>思考模式</Text>
-        <TouchableOpacity
-          style={s.thinkingRow}
-          onPress={() => setThinking(!thinking)}>
-          <Text style={s.thinkingLabel}>深度推理</Text>
-          <Text style={s.thinkingDesc}>让模型在回答前先进行链式推理</Text>
-          <View style={[s.thinkingToggle, thinking && s.thinkingToggleActive]}>
-            <View style={[s.thinkingDot, thinking && s.thinkingDotActive]} />
           </View>
-        </TouchableOpacity>
+
+          {testState !== 'idle' && (
+            <View
+              style={[
+                s.testResult,
+                testState === 'success' && s.testResultSuccess,
+                testState === 'error' && s.testResultError,
+              ]}>
+              <Text
+                style={[
+                  s.testResultText,
+                  testState === 'success' && s.testResultTextSuccess,
+                  testState === 'error' && s.testResultTextError,
+                ]}>
+                {testMessage}
+              </Text>
+              {testLatencyMs !== null && (
+                <Text style={s.testLatency}>
+                  {t('testConnectionLatency')}: {testLatencyMs} ms
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Prompt */}
+        <Text style={s.sectionLabel}>提示词</Text>
+        <View style={s.promptToggleRow}>
+          <TouchableOpacity
+            style={[s.promptToggle, !useCustomPrompt && s.promptToggleActive]}
+            onPress={() => {
+              if (useCustomPrompt && prompt !== DEFAULT_SYSTEM_PROMPT) {
+                savedCustomPrompt.current = prompt;
+              }
+              setUseCustomPrompt(false);
+              setPrompt(DEFAULT_SYSTEM_PROMPT);
+              resetTestResult();
+            }}>
+            <Text style={[s.promptToggleText, !useCustomPrompt && s.promptToggleTextActive]}>
+              系统默认
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.promptToggle, useCustomPrompt && s.promptToggleActive]}
+            onPress={() => {
+              setUseCustomPrompt(true);
+              setPrompt(savedCustomPrompt.current || DEFAULT_SYSTEM_PROMPT);
+              resetTestResult();
+            }}>
+            <Text style={[s.promptToggleText, useCustomPrompt && s.promptToggleTextActive]}>
+              自定义
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <TextInput
+          style={[s.textInput, s.promptInput]}
+          value={prompt}
+          onChangeText={text => {
+            resetTestResult();
+            setPrompt(text);
+          }}
+          multiline
+          textAlignVertical="top"
+          editable={useCustomPrompt}
+          placeholder={useCustomPrompt ? '输入自定义提示词...' : ''}
+          placeholderTextColor={colors.textMuted}
+        />
 
         <View style={{height: 40}} />
       </ScrollView>
@@ -350,11 +463,7 @@ function makeStyles(c: ThemeColors) {
     saveText: {fontSize: 15, color: c.accent, fontWeight: '500'},
     body: {flex: 1, paddingHorizontal: 20, paddingTop: 20},
 
-    // Dropdown
-    dropdownWrap: {
-      marginBottom: 10,
-      zIndex: 10,
-    },
+    dropdownWrap: {marginBottom: 10, zIndex: 10},
     dropdown: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -365,22 +474,9 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: 16,
       paddingVertical: 14,
     },
-    dropdownLabel: {
-      fontSize: 12,
-      color: c.textMuted,
-      marginRight: 10,
-      minWidth: 60,
-    },
-    dropdownValue: {
-      flex: 1,
-      fontSize: 14,
-      color: c.text,
-    },
-    dropdownArrow: {
-      fontSize: 10,
-      color: c.textMuted,
-      marginLeft: 8,
-    },
+    dropdownLabel: {fontSize: 12, color: c.textMuted, marginRight: 10, minWidth: 60},
+    dropdownValue: {flex: 1, fontSize: 14, color: c.text},
+    dropdownArrow: {fontSize: 10, color: c.textMuted, marginLeft: 8},
     dropdownMenu: {
       backgroundColor: c.card,
       borderWidth: StyleSheet.hairlineWidth,
@@ -389,15 +485,8 @@ function makeStyles(c: ThemeColors) {
       marginTop: 4,
       maxHeight: 240,
       overflow: 'hidden',
-      elevation: 4,
-      shadowColor: '#000',
-      shadowOffset: {width: 0, height: 2},
-      shadowOpacity: 0.1,
-      shadowRadius: 8,
     },
-    dropdownList: {
-      maxHeight: 240,
-    },
+    dropdownList: {maxHeight: 240},
     dropdownItem: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -407,34 +496,14 @@ function makeStyles(c: ThemeColors) {
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.border,
     },
-    dropdownItemActive: {
-      backgroundColor: c.accentLight,
-    },
-    dropdownItemText: {
-      fontSize: 14,
-      color: c.textSecondary,
-      flex: 1,
-    },
-    dropdownItemTextActive: {
-      color: c.accent,
-      fontWeight: '500',
-    },
+    dropdownItemActive: {backgroundColor: c.accentLight},
+    dropdownItemText: {fontSize: 14, color: c.textSecondary, flex: 1},
+    dropdownItemTextActive: {color: c.accent, fontWeight: '500'},
     check: {fontSize: 16, color: c.accent, marginLeft: 12},
 
-    // Input groups
-    inputGroup: {
-      marginBottom: 12,
-    },
-    inputLabel: {
-      fontSize: 12,
-      color: c.textMuted,
-      marginBottom: 6,
-    },
-    optional: {
-      fontSize: 11,
-      color: c.textMuted,
-      fontStyle: 'italic',
-    },
+    inputGroup: {marginBottom: 12},
+    inputLabel: {fontSize: 12, color: c.textMuted, marginBottom: 6},
+    optional: {fontSize: 11, color: c.textMuted, fontStyle: 'italic'},
     textInput: {
       fontSize: 14,
       color: c.text,
@@ -446,30 +515,86 @@ function makeStyles(c: ThemeColors) {
       borderColor: c.border,
     },
 
-    // Section
     sectionLabel: {
       fontSize: 13,
       fontWeight: '600',
       color: c.textSecondary,
-      marginTop: 24,
+      marginTop: 20,
       marginBottom: 8,
     },
-    chipRow: {flexDirection: 'row', flexWrap: 'wrap'},
-    chip: {
-      paddingHorizontal: 18,
-      paddingVertical: 10,
-      borderRadius: 20,
+    promptToggleRow: {
+      flexDirection: 'row',
+      marginBottom: 10,
+    },
+    promptToggle: {
+      paddingHorizontal: 20,
+      paddingVertical: 8,
+      borderRadius: 8,
       backgroundColor: c.card,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
       marginRight: 8,
-      marginBottom: 6,
     },
-    chipSelected: {borderColor: c.accent, backgroundColor: c.accentLight},
-    chipText: {fontSize: 13, color: c.textSecondary},
-    chipTextSelected: {color: c.accent, fontWeight: '500'},
+    promptToggleActive: {borderColor: c.accent, backgroundColor: c.accentLight},
+    promptToggleText: {fontSize: 13, color: c.textSecondary},
+    promptToggleTextActive: {color: c.accent, fontWeight: '500'},
+    promptInput: {
+      height: 300,
+      textAlignVertical: 'top',
+    },
 
-    // Error banner
+    testPanel: {
+      backgroundColor: c.card,
+      borderRadius: 10,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+      padding: 14,
+      marginBottom: 12,
+    },
+    testHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    testCopy: {flex: 1, paddingRight: 12},
+    testTitle: {fontSize: 13, fontWeight: '600', color: c.text},
+    testHint: {fontSize: 12, color: c.textMuted, marginTop: 4, lineHeight: 17},
+    testButton: {
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      borderRadius: 8,
+      backgroundColor: c.accent,
+      minWidth: 92,
+      alignItems: 'center',
+    },
+    testButtonDisabled: {opacity: 0.65},
+    testButtonText: {fontSize: 13, color: '#fff', fontWeight: '600'},
+    testResult: {
+      marginTop: 12,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      backgroundColor: c.bg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+    },
+    testResultSuccess: {
+      backgroundColor: '#e8f5e9',
+      borderColor: '#81c784',
+    },
+    testResultError: {
+      backgroundColor: '#ffebee',
+      borderColor: '#ef9a9a',
+    },
+    testResultText: {fontSize: 12, color: c.textSecondary, lineHeight: 17},
+    testResultTextSuccess: {color: '#2e7d32', fontWeight: '600'},
+    testResultTextError: {color: '#c62828', fontWeight: '600'},
+    testLatency: {
+      fontSize: 12,
+      color: c.textSecondary,
+      marginTop: 4,
+      fontWeight: '500',
+    },
+
     errorBanner: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -479,17 +604,8 @@ function makeStyles(c: ThemeColors) {
       borderBottomWidth: 1,
       borderBottomColor: '#ef9a9a',
     },
-    errorText: {
-      flex: 1,
-      fontSize: 12,
-      color: '#c62828',
-      lineHeight: 18,
-    },
-    errorBtns: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginLeft: 8,
-    },
+    errorText: {flex: 1, fontSize: 12, color: '#c62828', lineHeight: 18},
+    errorBtns: {flexDirection: 'row', alignItems: 'center', marginLeft: 8},
     errorCopyBtn: {
       paddingHorizontal: 14,
       paddingVertical: 6,
@@ -507,48 +623,5 @@ function makeStyles(c: ThemeColors) {
       justifyContent: 'center',
     },
     errorCloseText: {fontSize: 16, color: '#c62828'},
-
-    thinkingRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: c.card,
-      borderRadius: 10,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.border,
-      marginTop: 10,
-    },
-    thinkingLabel: {
-      fontSize: 14,
-      fontWeight: '500',
-      color: c.text,
-      marginRight: 8,
-    },
-    thinkingDesc: {
-      flex: 1,
-      fontSize: 11,
-      color: c.textMuted,
-    },
-    thinkingToggle: {
-      width: 44,
-      height: 26,
-      borderRadius: 13,
-      backgroundColor: c.bgSecondary,
-      justifyContent: 'center',
-      paddingHorizontal: 3,
-    },
-    thinkingToggleActive: {
-      backgroundColor: c.accent,
-    },
-    thinkingDot: {
-      width: 20,
-      height: 20,
-      borderRadius: 10,
-      backgroundColor: '#ffffff',
-    },
-    thinkingDotActive: {
-      alignSelf: 'flex-end',
-    },
   });
 }

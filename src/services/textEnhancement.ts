@@ -1,4 +1,5 @@
 import builtinProviders from '../models/textModels.json';
+import {DEFAULT_SYSTEM_PROMPT} from '../models/defaultPrompt';
 
 interface ProviderEntry {
   provider: string;
@@ -9,36 +10,49 @@ interface ProviderEntry {
 
 const PROVIDERS: ProviderEntry[] = builtinProviders as ProviderEntry[];
 
-const STYLE_PROMPTS: Record<string, Record<string, string>> = {
-  zh: {
-    styleFormal:
-      '请用正式、专业的语气改写以下文本，保持原意不变。只返回改写后的文本，不要添加任何解释。',
-    styleCasual:
-      '请用随性、口语化的语气改写以下文本，保持原意不变。只返回改写后的文本，不要添加任何解释。',
-    styleCreative:
-      '请用富有创意、生动的语气改写以下文本，保持原意不变。只返回改写后的文本，不要添加任何解释。',
-  },
-  en: {
-    styleFormal:
-      'Rewrite the following text in a formal, professional tone. Keep the original meaning. Return only the rewritten text, no explanations.',
-    styleCasual:
-      'Rewrite the following text in a casual, conversational tone. Keep the original meaning. Return only the rewritten text, no explanations.',
-    styleCreative:
-      'Rewrite the following text creatively and vividly. Keep the original meaning. Return only the rewritten text, no explanations.',
-  },
-};
+const MIN_TIMEOUT_MS = 3500;
+const MAX_TIMEOUT_MS = 9000;
+const TEST_TIMEOUT_MS = 10000;
 
 function getProtocol(provider: string): string {
   const p = PROVIDERS.find(pr => pr.provider === provider);
   return p?.protocol ?? 'openai';
 }
 
-function buildSystemPrompt(style: string, lang: string): string {
-  const prompts = STYLE_PROMPTS[lang] ?? STYLE_PROMPTS.zh;
-  return prompts[style] ?? prompts.styleCasual;
+export function getEnhancementRequestBudget(inputChars: number): {
+  timeoutMs: number;
+} {
+  const size = Math.max(1, inputChars);
+  return {
+    timeoutMs: Math.min(
+      MAX_TIMEOUT_MS,
+      Math.max(MIN_TIMEOUT_MS, Math.ceil(size * 60 + 2500)),
+    ),
+  };
 }
 
-// ---------- OpenAI-compatible ----------
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error(`Text model request timed out after ${timeoutMs}ms`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function callOpenAI(params: {
   baseUrl: string;
@@ -46,8 +60,7 @@ async function callOpenAI(params: {
   model: string;
   systemPrompt: string;
   userText: string;
-  maxTokens: number;
-  thinking: boolean;
+  timeoutMs: number;
 }): Promise<string> {
   const url = params.baseUrl.replace(/\/+$/, '') + '/chat/completions';
 
@@ -57,22 +70,17 @@ async function callOpenAI(params: {
       {role: 'system', content: params.systemPrompt},
       {role: 'user', content: params.userText},
     ],
-    max_tokens: params.maxTokens,
-    temperature: 0.7,
+    temperature: 0.3,
   };
 
-  if (params.thinking) {
-    body.extra_body = {thinking: {type: 'enabled'}};
-  }
-
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${params.apiKey}`,
     },
     body: JSON.stringify(body),
-  });
+  }, params.timeoutMs);
 
   if (!resp.ok) {
     const errText = await resp.text();
@@ -83,26 +91,23 @@ async function callOpenAI(params: {
   return data.choices?.[0]?.message?.content?.trim() ?? '';
 }
 
-// ---------- Anthropic-compatible ----------
-
 async function callAnthropic(params: {
   baseUrl: string;
   apiKey: string;
   model: string;
   systemPrompt: string;
   userText: string;
-  maxTokens: number;
+  timeoutMs: number;
 }): Promise<string> {
   const url = params.baseUrl.replace(/\/+$/, '') + '/v1/messages';
 
   const body = {
     model: params.model,
-    max_tokens: params.maxTokens,
     system: params.systemPrompt,
     messages: [{role: 'user', content: params.userText}],
   };
 
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -110,7 +115,7 @@ async function callAnthropic(params: {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(body),
-  });
+  }, params.timeoutMs);
 
   if (!resp.ok) {
     const errText = await resp.text();
@@ -121,17 +126,70 @@ async function callAnthropic(params: {
   return data.content?.[0]?.text?.trim() ?? '';
 }
 
-// ---------- Public API ----------
-
 export interface EnhanceParams {
   provider: string;
   model: string;
   baseUrl: string;
   apiKey: string;
-  style: string;
-  maxTokens: string;
-  thinking: boolean;
-  lang?: string;
+  prompt: string;
+  memoryContext?: string;
+}
+
+export interface TextModelConnectionResult {
+  latencyMs: number;
+  outputText: string;
+}
+
+function validateTextModelParams(params: EnhanceParams): void {
+  if (!params.provider.trim()) {
+    throw new Error('Text model provider is empty');
+  }
+  if (!params.baseUrl.trim()) {
+    throw new Error('Text model endpoint URL is empty');
+  }
+  if (!/^https?:\/\//i.test(params.baseUrl.trim())) {
+    throw new Error('Text model endpoint URL must start with http:// or https://');
+  }
+  if (!params.model.trim()) {
+    throw new Error('Text model name is empty');
+  }
+  if (!params.apiKey.trim()) {
+    throw new Error('Text model API key is empty');
+  }
+}
+
+export async function testTextModelConnection(
+  params: EnhanceParams,
+): Promise<TextModelConnectionResult> {
+  validateTextModelParams(params);
+
+  const protocol = getProtocol(params.provider);
+  const systemPrompt = 'You are a connection test endpoint. Reply with OK only.';
+  const userText = 'Reply OK.';
+  const startedAt = Date.now();
+
+  const outputText = protocol === 'anthropic'
+    ? await callAnthropic({
+      baseUrl: params.baseUrl,
+      apiKey: params.apiKey,
+      model: params.model,
+      systemPrompt,
+      userText,
+      timeoutMs: TEST_TIMEOUT_MS,
+    })
+    : await callOpenAI({
+      baseUrl: params.baseUrl,
+      apiKey: params.apiKey,
+      model: params.model,
+      systemPrompt,
+      userText,
+      timeoutMs: TEST_TIMEOUT_MS,
+    });
+
+  return {
+    latencyMs: Date.now() - startedAt,
+    outputText,
+  };
 }
 
 export async function enhanceText(
@@ -143,28 +201,49 @@ export async function enhanceText(
   }
 
   const protocol = getProtocol(params.provider);
-  const systemPrompt = buildSystemPrompt(params.style, params.lang ?? 'zh');
+  const systemPrompt = buildSystemPrompt(
+    params.prompt || DEFAULT_SYSTEM_PROMPT,
+    params.memoryContext,
+  );
   const userMessage = `原始文本：\n${inputText}`;
-  const tokens = parseInt(params.maxTokens, 10) || 1024;
+  const budget = getEnhancementRequestBudget(inputText.length);
 
-  if (protocol === 'anthropic') {
-    return callAnthropic({
+  const callModel = (timeoutMs: number) => {
+    if (protocol === 'anthropic') {
+      return callAnthropic({
+        baseUrl: params.baseUrl,
+        apiKey: params.apiKey,
+        model: params.model,
+        systemPrompt,
+        userText: userMessage,
+        timeoutMs,
+      });
+    }
+
+    return callOpenAI({
       baseUrl: params.baseUrl,
       apiKey: params.apiKey,
       model: params.model,
       systemPrompt,
       userText: userMessage,
-      maxTokens: tokens,
+      timeoutMs,
     });
+  };
+
+  const first = await callModel(budget.timeoutMs);
+  return first.trim();
+}
+
+function buildSystemPrompt(basePrompt: string, memoryContext?: string): string {
+  const trimmedContext = memoryContext?.trim();
+  if (!trimmedContext) {
+    return basePrompt;
   }
 
-  return callOpenAI({
-    baseUrl: params.baseUrl,
-    apiKey: params.apiKey,
-    model: params.model,
-    systemPrompt,
-    userText: userMessage,
-    maxTokens: tokens,
-    thinking: params.thinking,
-  });
+  return `${basePrompt}
+
+## 用户专属语料库
+下面是用户启用的专属语料。它们用于理解用户偏好的表达方式、专有名词、常用措辞和上下文背景。改写时优先参考这些语料，但不要凭空添加原始文本没有表达的新事实。
+
+${trimmedContext}`;
 }

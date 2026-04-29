@@ -3,6 +3,7 @@ import {StatusBar, View, StyleSheet, LogBox} from 'react-native';
 import {I18nProvider, useI18n} from './src/i18n/I18nContext';
 import type {Lang} from './src/i18n/translations';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
+import {DEFAULT_SYSTEM_PROMPT} from './src/models/defaultPrompt';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import Sidebar from './src/components/Sidebar';
 import {
@@ -32,22 +33,23 @@ if (global.ErrorUtils) {
 import HomeScreen from './src/screens/HomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import MemoryScreen from './src/screens/MemoryScreen';
+import HistoryScreen from './src/screens/HistoryScreen';
 import ASRSettings from './src/screens/ASRSettings';
 import ModelSettings from './src/screens/ModelSettings';
 import ShortcutSettings from './src/screens/ShortcutSettings';
-import {useRecording} from './src/services/OverlayManager';
+import {useRecorder} from './src/services/RecorderWorkflow';
 
-type Screen = 'home' | 'memory' | 'settings' | 'asr' | 'model' | 'shortcut';
+type Screen = 'home' | 'memory' | 'history' | 'settings' | 'asr' | 'model' | 'shortcut';
 type SettingScreen = 'asr' | 'model' | 'shortcut';
 
 interface Config {
   asr: {engine: string; model: string; language: string; sampleRate: string};
-  textModel: {provider: string; model: string; baseUrl: string; apiKey: string; style: string; maxTokens: string; thinking: boolean};
+  textModel: {provider: string; model: string; baseUrl: string; apiKey: string; prompt: string};
   shortcut: {modifier: string; key: string};
 }
 
 const DEFAULT_ASR = {engine: 'sensevoice', model: 'senseVoiceSmall', language: 'auto', sampleRate: '16k'};
-const DEFAULT_TEXT = {provider: '', model: '', baseUrl: '', apiKey: '', style: 'casual', maxTokens: '1024', thinking: false};
+const DEFAULT_TEXT = {provider: '', model: '', baseUrl: '', apiKey: '', prompt: DEFAULT_SYSTEM_PROMPT};
 const DEFAULT_SHORTCUT = {modifier: 'Fn', key: 'Fn'};
 
 function AppContent({initialConfig}: {initialConfig: Config}) {
@@ -57,8 +59,8 @@ function AppContent({initialConfig}: {initialConfig: Config}) {
   const [config, setConfig] = useState<Config>(initialConfig);
   const isFirstRender = useRef(true);
 
-  // Start the native fn-key listener / overlay manager for the lifetime of the app.
-  useRecording();
+  // Start the complete fn-key recording workflow for the lifetime of the app.
+  useRecorder();
 
   useEffect(() => {
     if (isFirstRender.current) {
@@ -76,9 +78,7 @@ function AppContent({initialConfig}: {initialConfig: Config}) {
       model: config.textModel.model,
       base_url: config.textModel.baseUrl,
       api_key: config.textModel.apiKey,
-      style: config.textModel.style,
-      max_tokens: config.textModel.maxTokens,
-      thinking: config.textModel.thinking ? 1 : 0,
+      prompt: config.textModel.prompt,
     });
     saveShortcutConfig({
       modifier: config.shortcut.modifier,
@@ -89,6 +89,7 @@ function AppContent({initialConfig}: {initialConfig: Config}) {
   const menuItems = [
     {key: 'home', label: t('homeMenu'), icon: '⌂'},
     {key: 'memory', label: t('memoryMenu'), icon: '▤'},
+    {key: 'history', label: t('historyMenu'), icon: '◷'},
     {key: 'settings', label: t('settingsMenu'), icon: '⚙'},
   ];
 
@@ -104,6 +105,7 @@ function AppContent({initialConfig}: {initialConfig: Config}) {
         <View style={styles.content}>
           {screen === 'home' && <HomeScreen />}
           {screen === 'memory' && <MemoryScreen />}
+          {screen === 'history' && <HistoryScreen />}
           {screen === 'settings' && (
             <SettingsScreen
               config={config}
@@ -160,8 +162,11 @@ export default function App() {
     (async () => {
       const asr = await loadASRConfig({...DEFAULT_ASR, sample_rate: DEFAULT_ASR.sampleRate});
       const txt = await loadTextModelConfig({
-        ...DEFAULT_TEXT, base_url: DEFAULT_TEXT.baseUrl, api_key: DEFAULT_TEXT.apiKey,
-        max_tokens: DEFAULT_TEXT.maxTokens, thinking: 0,
+        provider: '',
+        model: '',
+        base_url: '',
+        api_key: '',
+        prompt: DEFAULT_SYSTEM_PROMPT,
       });
       const sc = await loadShortcutConfig(DEFAULT_SHORTCUT);
       const darkStr = await loadSetting('theme', 'false');
@@ -179,9 +184,7 @@ export default function App() {
           model: txt.model,
           baseUrl: txt.base_url,
           apiKey: txt.api_key,
-          style: txt.style,
-          maxTokens: txt.max_tokens,
-          thinking: txt.thinking === 1,
+          prompt: txt.prompt || DEFAULT_SYSTEM_PROMPT,
         },
         shortcut: sc,
       });

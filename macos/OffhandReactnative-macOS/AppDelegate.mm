@@ -5,6 +5,7 @@
 
 @interface AppDelegate ()
 @property (nonatomic, strong) NSStatusItem *statusItem;
+@property (nonatomic, strong) NSWindow *mainWindow;
 @end
 
 @implementation AppDelegate
@@ -18,36 +19,35 @@
   [super applicationDidFinishLaunching:notification];
 
   dispatch_async(dispatch_get_main_queue(), ^{
-    [self applyMainWindowTitle];
+    [self setupMainWindow];
+    [self setupStatusBarItem];
   });
-
-  [self setupStatusBarItem];
 }
 
-- (NSImage *)shishouApplicationIcon
-{
-  NSImage *icon = [NSApp applicationIconImage];
-  if (icon && icon.isValid) {
-    return icon;
-  }
-
-  icon = [NSImage imageNamed:@"AppIcon"];
-  if (icon && icon.isValid) {
-    return icon;
-  }
-
-  NSString *iconPath = [[NSBundle mainBundle] pathForResource:@"AppIcon" ofType:@"icns"];
-  if (iconPath.length > 0) {
-    icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
-  }
-
-  return icon.isValid ? icon : nil;
-}
-
-- (void)applyMainWindowTitle
+- (void)setupMainWindow
 {
   for (NSWindow *window in NSApp.windows) {
-    window.title = @"释手语音输入法";
+    if ([window isKindOfClass:[NSWindow class]] && (window.styleMask & NSWindowStyleMaskTitled)) {
+      self.mainWindow = window;
+      window.title = @"释手";
+      window.releasedWhenClosed = NO;
+
+      // Intercept close to hide instead of destroy
+      [[NSNotificationCenter defaultCenter] addObserver:self
+                                               selector:@selector(windowWillClose:)
+                                                   name:NSWindowWillCloseNotification
+                                                 object:window];
+      break;
+    }
+  }
+}
+
+- (void)windowWillClose:(NSNotification *)notification
+{
+  NSWindow *window = notification.object;
+  if (window == self.mainWindow) {
+    // Don't actually close — just hide
+    [window orderOut:nil];
   }
 }
 
@@ -55,19 +55,16 @@
 {
   self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
 
-  NSImage *icon = [[self shishouApplicationIcon] copy];
+  NSImage *icon = [NSApp applicationIconImage];
   if (!icon) {
     icon = [NSImage imageNamed:NSImageNameTouchBarAudioInputTemplate];
   }
-
   icon.size = NSMakeSize(18, 18);
-  [icon setTemplate:NO];
   self.statusItem.button.image = icon;
-  self.statusItem.button.toolTip = @"释手语音输入法";
+  self.statusItem.button.toolTip = @"释手 Offhand";
 
-  // Menu
   NSMenu *menu = [[NSMenu alloc] init];
-  [menu addItem:[[NSMenuItem alloc] initWithTitle:@"打开释手语音输入法" action:@selector(showMainWindow) keyEquivalent:@""]];
+  [menu addItem:[[NSMenuItem alloc] initWithTitle:@"打开 / Open" action:@selector(showMainWindow) keyEquivalent:@""]];
   [menu addItem:[NSMenuItem separatorItem]];
   [menu addItem:[[NSMenuItem alloc] initWithTitle:@"退出 / Quit" action:@selector(terminateApp) keyEquivalent:@""]];
   self.statusItem.menu = menu;
@@ -76,20 +73,27 @@
 - (void)showMainWindow
 {
   dispatch_async(dispatch_get_main_queue(), ^{
-    [NSApp activateIgnoringOtherApps:YES];
-    NSWindow *window = NSApp.windows.firstObject;
-    if (window) {
-      [self applyMainWindowTitle];
-      [window makeKeyAndOrderFront:nil];
-    } else {
-      // Re-create if needed (react-native handles this)
+    if (self.mainWindow) {
       [NSApp activateIgnoringOtherApps:YES];
+      [self.mainWindow makeKeyAndOrderFront:nil];
+    } else {
+      // Fallback: find any window
+      for (NSWindow *window in NSApp.windows) {
+        if (window.styleMask & NSWindowStyleMaskTitled) {
+          self.mainWindow = window;
+          window.releasedWhenClosed = NO;
+          [NSApp activateIgnoringOtherApps:YES];
+          [window makeKeyAndOrderFront:nil];
+          return;
+        }
+      }
     }
   });
 }
 
 - (void)terminateApp
 {
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
   [NSApp terminate:nil];
 }
 

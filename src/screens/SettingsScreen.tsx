@@ -8,7 +8,7 @@ import {getLogFilePath, openLogFolder} from '../services/OverlayManager';
 type SettingScreen = 'asr' | 'model' | 'shortcut';
 
 interface ASRConfig {engine: string; model: string; language: string; sampleRate: string}
-interface ModelConfig {provider: string; model: string; baseUrl: string; apiKey: string; style: string; maxTokens: string; thinking: boolean}
+interface ModelConfig {provider: string; model: string; baseUrl: string; apiKey: string; prompt: string}
 interface ShortcutConfig {modifier: string; key: string}
 
 interface Props {
