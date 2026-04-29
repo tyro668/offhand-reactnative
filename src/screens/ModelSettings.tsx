@@ -19,6 +19,7 @@ interface TextModelConfig {
   apiKey: string;
   style: string;
   maxTokens: string;
+  thinking: boolean;
 }
 
 interface ProviderModel {
@@ -119,6 +120,7 @@ export default function ModelSettings({config, onSave, onBack}: Props) {
   const [baseUrl, setBaseUrl] = useState(config.baseUrl);
   const [style, setStyle] = useState(config.style);
   const [maxTokens, setMaxTokens] = useState(config.maxTokens);
+  const [thinking, setThinking] = useState(config.thinking);
   const [errMsg, setErrMsg] = useState('');
 
   const handleError = (ctx: string, e: unknown) => {
@@ -179,7 +181,7 @@ export default function ModelSettings({config, onSave, onBack}: Props) {
         <Text style={s.title}>{t('textModelTitle')}</Text>
         <TouchableOpacity
           onPress={() =>
-            onSave({provider, model, baseUrl, apiKey, style, maxTokens})
+            onSave({provider, model, baseUrl, apiKey, style, maxTokens, thinking})
           }>
           <Text style={s.saveText}>{t('save')}</Text>
         </TouchableOpacity>
@@ -309,6 +311,18 @@ export default function ModelSettings({config, onSave, onBack}: Props) {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Thinking mode */}
+        <Text style={s.sectionLabel}>思考模式</Text>
+        <TouchableOpacity
+          style={s.thinkingRow}
+          onPress={() => setThinking(!thinking)}>
+          <Text style={s.thinkingLabel}>深度推理</Text>
+          <Text style={s.thinkingDesc}>让模型在回答前先进行链式推理</Text>
+          <View style={[s.thinkingToggle, thinking && s.thinkingToggleActive]}>
+            <View style={[s.thinkingDot, thinking && s.thinkingDotActive]} />
+          </View>
+        </TouchableOpacity>
 
         <View style={{height: 40}} />
       </ScrollView>
@@ -493,5 +507,48 @@ function makeStyles(c: ThemeColors) {
       justifyContent: 'center',
     },
     errorCloseText: {fontSize: 16, color: '#c62828'},
+
+    thinkingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: c.card,
+      borderRadius: 10,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+      marginTop: 10,
+    },
+    thinkingLabel: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: c.text,
+      marginRight: 8,
+    },
+    thinkingDesc: {
+      flex: 1,
+      fontSize: 11,
+      color: c.textMuted,
+    },
+    thinkingToggle: {
+      width: 44,
+      height: 26,
+      borderRadius: 13,
+      backgroundColor: c.bgSecondary,
+      justifyContent: 'center',
+      paddingHorizontal: 3,
+    },
+    thinkingToggleActive: {
+      backgroundColor: c.accent,
+    },
+    thinkingDot: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: '#ffffff',
+    },
+    thinkingDotActive: {
+      alignSelf: 'flex-end',
+    },
   });
 }

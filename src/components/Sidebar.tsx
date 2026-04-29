@@ -2,6 +2,7 @@ import React from 'react';
 import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
+import {usePermissionStatus} from '../services/OverlayManager';
 
 const SIDEBAR_WIDTH = 220;
 
@@ -21,6 +22,47 @@ export default function Sidebar({activeKey, menuItems, onSelect}: Props) {
   const {t} = useI18n();
   const {colors} = useTheme();
   const s = makeStyles(colors);
+  const {
+    status,
+    requestAccessibility,
+    requestInputMonitoring,
+    requestMicrophone,
+  } = usePermissionStatus();
+
+  const permissionRows: Array<{
+    key: string;
+    title: string;
+    onGrant: () => void;
+  }> = [];
+  if (status) {
+    if (!status.microphone) {
+      permissionRows.push({
+        key: 'mic',
+        title: t('permissionMicrophoneTitle'),
+        onGrant: () => {
+          void requestMicrophone();
+        },
+      });
+    }
+    if (!status.accessibility) {
+      permissionRows.push({
+        key: 'a11y',
+        title: t('permissionAccessibilityTitle'),
+        onGrant: () => {
+          void requestAccessibility();
+        },
+      });
+    }
+    if (!status.inputMonitoring) {
+      permissionRows.push({
+        key: 'input',
+        title: t('permissionInputMonitoringTitle'),
+        onGrant: () => {
+          void requestInputMonitoring();
+        },
+      });
+    }
+  }
 
   return (
     <View style={s.container}>
@@ -52,6 +94,29 @@ export default function Sidebar({activeKey, menuItems, onSelect}: Props) {
 
       {/* Footer spacer */}
       <View style={s.footer} />
+
+      {/* Permission status (only shown when something is missing) */}
+      {permissionRows.length > 0 && (
+        <View style={s.permissions}>
+          {permissionRows.map(row => (
+            <View key={row.key} style={s.permissionRow}>
+              <View style={s.permissionTextWrap}>
+                <View style={s.permissionDot} />
+                <Text style={s.permissionTitle} numberOfLines={2}>
+                  {row.title}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={s.permissionBtn}
+                onPress={row.onGrant}>
+                <Text style={s.permissionBtnText}>
+                  {t('permissionGrantBtn')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -118,6 +183,48 @@ function makeStyles(c: ThemeColors) {
     },
     footer: {
       flex: 1,
+    },
+    permissions: {
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.border,
+    },
+    permissionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 6,
+    },
+    permissionTextWrap: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingRight: 8,
+    },
+    permissionDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: '#E14B4B',
+      marginRight: 8,
+    },
+    permissionTitle: {
+      flex: 1,
+      fontSize: 11,
+      color: c.textSecondary,
+      lineHeight: 14,
+    },
+    permissionBtn: {
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 6,
+      backgroundColor: c.accent,
+    },
+    permissionBtnText: {
+      fontSize: 11,
+      color: '#FFFFFF',
+      fontWeight: '600',
     },
   });
 }

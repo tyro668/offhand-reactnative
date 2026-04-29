@@ -1,13 +1,14 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
 import SettingsRow from '../components/SettingsRow';
+import {getLogFilePath, openLogFolder} from '../services/OverlayManager';
 
 type SettingScreen = 'asr' | 'model' | 'shortcut';
 
 interface ASRConfig {engine: string; model: string; language: string; sampleRate: string}
-interface ModelConfig {provider: string; model: string; baseUrl: string; apiKey: string; style: string; maxTokens: string}
+interface ModelConfig {provider: string; model: string; baseUrl: string; apiKey: string; style: string; maxTokens: string; thinking: boolean}
 interface ShortcutConfig {modifier: string; key: string}
 
 interface Props {
@@ -22,7 +23,37 @@ interface Props {
 export default function SettingsScreen({config, onNavigate}: Props) {
   const {t, lang, toggleLang} = useI18n();
   const {colors, isDark, toggleTheme} = useTheme();
+  const [logFilePath, setLogFilePath] = useState('');
   const s = makeStyles(colors);
+
+  useEffect(() => {
+    let active = true;
+
+    getLogFilePath()
+      .then(path => {
+        if (active) {
+          setLogFilePath(path);
+        }
+      })
+      .catch(e => {
+        console.warn('[SettingsScreen] getLogFilePath failed', e);
+        if (active) {
+          setLogFilePath(t('logUnavailable'));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [t]);
+
+  const handleOpenLogFolder = async () => {
+    try {
+      await openLogFolder();
+    } catch (e) {
+      console.warn('[SettingsScreen] openLogFolder failed', e);
+    }
+  };
 
   return (
     <View style={s.container}>
@@ -67,6 +98,19 @@ export default function SettingsScreen({config, onNavigate}: Props) {
           }
           onPress={() => onNavigate('shortcut')}
         />
+
+        <Text style={s.sectionTitle}>{t('logsSection')}</Text>
+        <View style={s.logRow}>
+          <View style={s.logTextBlock}>
+            <Text style={s.rowLabel}>{t('logFilePath')}</Text>
+            <Text selectable style={s.logPath}>
+              {logFilePath || t('logPathLoading')}
+            </Text>
+          </View>
+          <TouchableOpacity style={s.openButton} onPress={handleOpenLogFolder}>
+            <Text style={s.openButtonText}>{t('open')}</Text>
+          </TouchableOpacity>
+        </View>
         <View style={{height: 40}} />
       </ScrollView>
     </View>
@@ -100,6 +144,39 @@ function makeStyles(c: ThemeColors) {
       borderColor: c.border,
     },
     rowLabel: {fontSize: 15, color: c.text},
+    logRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 20,
+      paddingVertical: 14,
+      backgroundColor: c.card,
+      borderRadius: 10,
+      marginBottom: 6,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+    },
+    logTextBlock: {
+      flex: 1,
+      marginRight: 12,
+    },
+    logPath: {
+      marginTop: 6,
+      fontSize: 12,
+      lineHeight: 17,
+      color: c.textMuted,
+    },
+    openButton: {
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: 16,
+      backgroundColor: c.accent,
+    },
+    openButtonText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: '#ffffff',
+    },
     toggle: {
       paddingHorizontal: 16,
       paddingVertical: 6,

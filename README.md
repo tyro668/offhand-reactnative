@@ -1,97 +1,103 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# 释手 Offhand
 
-# Getting Started
+言之所至，释手而书。 / Speak freely, write unbound.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+基于 React Native 的 macOS + Windows 桌面应用，提供语音转文字与文本增强功能。
 
-## Step 1: Start Metro
+## 技术栈
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+- React Native 0.85 + react-native-macos 0.81 + react-native-windows 0.82
+- SQLite 本地配置存储
+- Sherpa-onnx（SenseVoice / Whisper）语音识别
+- OpenAI / Anthropic 兼容协议文本增强
+- Fn 键全局热键 + 独立录音悬浮窗
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+## 开发环境
 
 ```sh
-# Using npm
+# 安装依赖
+npm install --legacy-peer-deps
+
+# 安装 CocoaPods（仅首次或 native 依赖变更后）
+cd macos && pod install && cd ..
+
+# 启动 Metro 开发服务器
 npm start
 
-# OR using Yarn
-yarn start
+# 启动 macOS 应用
+npm run macos
 ```
 
-## Step 2: Build and run your app
+## 辅助功能权限
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+首次启动需授权辅助功能权限（F键全局监听）：
+系统设置 → 隐私与安全性 → 辅助功能 → 开启「OffhandReactnative」
 
-### Android
+## 构建 Release 版本
 
 ```sh
-# Using npm
-npm run android
+# 1. 修复代码生成器兼容性（react-native-macos 版本差异）
+rm -rf node_modules/react-native-macos/node_modules/@react-native/codegen
+cp -r node_modules/@react-native/codegen node_modules/react-native-macos/node_modules/@react-native/codegen
 
-# OR using Yarn
-yarn android
+# 2. 修复 fmt 库 consteval 兼容性（macOS SDK 26.x）
+sed -i '' 's/#elif defined(__cpp_consteval)/#elif defined(__APPLE__)\n#  define FMT_USE_CONSTEVAL 0\n#elif defined(__cpp_consteval)/' \
+  macos/Pods/fmt/include/fmt/base.h
+
+# 3. 安装 CocoaPods 依赖
+cd macos && pod install && cd ..
+
+# 4. 构建 Release
+cd macos
+xcodebuild -workspace OffhandReactnative.xcworkspace \
+  -scheme OffhandReactnative-macOS \
+  -configuration Release \
+  -destination "platform=macOS" \
+  -derivedDataPath build \
+  build
+cd ..
+
+# 5. 产物路径
+open macos/build/Build/Products/Release/OffhandReactnative.app
 ```
 
-### iOS
+## 项目结构
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
+```
+src/
+├── i18n/                  # 中英文国际化
+├── theme/                 # 亮/暗主题
+├── db/database.ts         # SQLite 配置存储
+├── models/textModels.json  # 内置模型提供商
+├── services/
+│   ├── textEnhancement.ts  # OpenAI/Anthropic API 调用
+│   └── OverlayManager.ts   # 录音悬浮窗 JS 桥接
+├── components/
+│   ├── Sidebar.tsx         # 左侧菜单
+│   ├── ErrorBoundary.tsx   # 错误捕获
+│   └── ...
+└── screens/
+    ├── HomeScreen.tsx       # 主页（使用统计）
+    ├── MemoryScreen.tsx     # 记忆库管理
+    ├── SettingsScreen.tsx   # 系统设置
+    ├── ASRSettings.tsx      # 语音模型（SenseVoice/Whisper）
+    ├── ModelSettings.tsx    # 文本模型（供应商/自定义）
+    └── ShortcutSettings.tsx # 快捷键配置
 ```
 
-Then, and every time you update your native dependencies, run:
+## 数据库表结构
 
-```sh
-bundle exec pod install
-```
+| 表名 | 字段 | 说明 |
+|---|---|---|
+| `asr_config` | engine, model, language, sample_rate | 语音识别配置 |
+| `text_model_config` | provider, model, base_url, api_key, style, max_tokens, thinking | 文本模型配置 |
+| `shortcut_config` | modifier, key | 快捷键配置 |
+| `app_settings` | setting_key, setting_value | 主题/语言等键值 |
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+## 设计理念
 
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+- **Typeless** — 极简无装饰排版风格，聚焦内容本身
+- **开箱即用** — 内置 z.ai / moonshot / deepseek / openai / anthropic 五大模型提供商
+- **本地持久化** — SQLite 存储，应用重启配置不丢失
+- **全局热键** — CGEventTap 实现 Fn 键系统级监听，无需应用焦点
+- **独立悬浮窗** — NSPanel 录音状态指示器，跨桌面、全屏可见

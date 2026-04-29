@@ -1,5 +1,5 @@
 import React, {createContext, useContext, useState, useCallback, useEffect, useRef} from 'react';
-import {loadConfig, saveConfig} from '../db/database';
+import {saveSetting} from '../db/database';
 
 export interface ThemeColors {
   bg: string;
@@ -70,7 +70,7 @@ export function ThemeProvider({
       isFirstRender.current = false;
       return;
     }
-    saveConfig('theme', isDark);
+    saveSetting('theme', String(isDark));
   }, [isDark]);
 
   const toggleTheme = useCallback(() => {

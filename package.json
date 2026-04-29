@@ -5,7 +5,9 @@
   "scripts": {
     "android": "react-native run-android",
     "ios": "react-native run-ios",
-    "macos": "react-native run-macos",
+    "icons:macos": "bash scripts/generate-macos-icons.sh",
+    "macos": "npm run icons:macos && react-native run-macos",
+    "macos:clean": "npm run icons:macos && rm -rf ~/Library/Developer/Xcode/DerivedData/OffhandReactnative-* && npx react-native run-macos",
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",

@@ -3,17 +3,105 @@
 #import <React/RCTBundleURLProvider.h>
 #import <ReactAppDependencyProvider/RCTAppDependencyProvider.h>
 
+@interface AppDelegate ()
+@property (nonatomic, strong) NSStatusItem *statusItem;
+@end
+
 @implementation AppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
   self.moduleName = @"OffhandReactnative";
-  // You can add your custom initial props in the dictionary below.
-  // They will be passed down to the ViewController used by React Native.
   self.initialProps = @{};
   self.dependencyProvider = [RCTAppDependencyProvider new];
-  
-  return [super applicationDidFinishLaunching:notification];
+
+  [super applicationDidFinishLaunching:notification];
+
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [self applyMainWindowTitle];
+  });
+
+  [self setupStatusBarItem];
+}
+
+- (NSImage *)shishouApplicationIcon
+{
+  NSImage *icon = [NSApp applicationIconImage];
+  if (icon && icon.isValid) {
+    return icon;
+  }
+
+  icon = [NSImage imageNamed:@"AppIcon"];
+  if (icon && icon.isValid) {
+    return icon;
+  }
+
+  NSString *iconPath = [[NSBundle mainBundle] pathForResource:@"AppIcon" ofType:@"icns"];
+  if (iconPath.length > 0) {
+    icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
+  }
+
+  return icon.isValid ? icon : nil;
+}
+
+- (void)applyMainWindowTitle
+{
+  for (NSWindow *window in NSApp.windows) {
+    window.title = @"释手语音输入法";
+  }
+}
+
+- (void)setupStatusBarItem
+{
+  self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
+
+  NSImage *icon = [[self shishouApplicationIcon] copy];
+  if (!icon) {
+    icon = [NSImage imageNamed:NSImageNameTouchBarAudioInputTemplate];
+  }
+
+  icon.size = NSMakeSize(18, 18);
+  [icon setTemplate:NO];
+  self.statusItem.button.image = icon;
+  self.statusItem.button.toolTip = @"释手语音输入法";
+
+  // Menu
+  NSMenu *menu = [[NSMenu alloc] init];
+  [menu addItem:[[NSMenuItem alloc] initWithTitle:@"打开释手语音输入法" action:@selector(showMainWindow) keyEquivalent:@""]];
+  [menu addItem:[NSMenuItem separatorItem]];
+  [menu addItem:[[NSMenuItem alloc] initWithTitle:@"退出 / Quit" action:@selector(terminateApp) keyEquivalent:@""]];
+  self.statusItem.menu = menu;
+}
+
+- (void)showMainWindow
+{
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [NSApp activateIgnoringOtherApps:YES];
+    NSWindow *window = NSApp.windows.firstObject;
+    if (window) {
+      [self applyMainWindowTitle];
+      [window makeKeyAndOrderFront:nil];
+    } else {
+      // Re-create if needed (react-native handles this)
+      [NSApp activateIgnoringOtherApps:YES];
+    }
+  });
+}
+
+- (void)terminateApp
+{
+  [NSApp terminate:nil];
+}
+
+- (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag
+{
+  [self showMainWindow];
+  return YES;
+}
+
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
+{
+  return NO;
 }
 
 - (NSURL *)sourceURLForBridge:(RCTBridge *)bridge
@@ -30,11 +118,6 @@
 #endif
 }
 
-/// This method controls whether the `concurrentRoot`feature of React18 is turned on or off.
-///
-/// @see: https://reactjs.org/blog/2022/03/29/react-v18.html
-/// @note: This requires to be rendering on Fabric (i.e. on the New Architecture).
-/// @return: `true` if the `concurrentRoot` feature is enabled. Otherwise, it returns `false`.
 - (BOOL)concurrentRootEnabled
 {
 #ifdef RN_FABRIC_ENABLED

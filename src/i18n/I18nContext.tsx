@@ -1,6 +1,6 @@
 import React, {createContext, useContext, useState, useCallback, useEffect, useRef} from 'react';
 import {translations, type Lang} from './translations';
-import {saveConfig} from '../db/database';
+import {saveSetting} from '../db/database';
 
 interface I18nContextType {
   lang: Lang;
@@ -31,7 +31,7 @@ export function I18nProvider({
       isFirstRender.current = false;
       return;
     }
-    saveConfig('language', lang);
+    saveSetting('language', lang);
   }, [lang]);
 
   const toggleLang = useCallback(() => {
