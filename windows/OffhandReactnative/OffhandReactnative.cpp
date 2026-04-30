@@ -71,7 +71,7 @@ _Use_decl_annotations_ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE, PSTR 
 
   // Get the AppWindow so we can configure its initial title and size
   auto appWindow{reactNativeWin32App.AppWindow()};
-  appWindow.Title(L"\u91CA\u624B\u8BED\u97F3\u8F93\u5165\u6CD5");
+  appWindow.Title(L"\u91CA\u624B");
   appWindow.Resize({1000, 1000});
 
   // Get the ReactViewOptions so we can set the initial RN component to load

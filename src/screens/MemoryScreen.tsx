@@ -27,6 +27,7 @@ export default function MemoryScreen() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -68,14 +69,24 @@ export default function MemoryScreen() {
       {
         text: '删除',
         style: 'destructive',
-        onPress: () => {
-          deleteMemoryCorpus(id)
-            .then(() => refresh())
-            .catch(e => console.warn('Delete error:', e));
-        },
+        onPress: () => setDeleteTarget(id),
       },
     ]);
   };
+
+  useEffect(() => {
+    if (deleteTarget === null) return;
+    let cancelled = false;
+    deleteMemoryCorpus(deleteTarget)
+      .then(() => {
+        if (!cancelled) refresh();
+      })
+      .catch(e => console.warn('Delete error:', e))
+      .finally(() => {
+        if (!cancelled) setDeleteTarget(null);
+      });
+    return () => { cancelled = true; };
+  }, [deleteTarget, refresh]);
 
   const handleStartEdit = (item: MemoryCorpusRow) => {
     setEditingId(item.id);

@@ -9,7 +9,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
-const macosBundleId = process.env.OFFHAND_MACOS_BUNDLE_ID || 'org.reactjs.native.OffhandReactnative';
+const macosBundleId = process.env.OFFHAND_MACOS_BUNDLE_ID || 'com.metis.reactnative.offhand';
 
 function hasArg(name) {
   return args.some(arg => arg === name || arg.startsWith(`${name}=`));

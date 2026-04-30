@@ -30,6 +30,8 @@ export default function HistoryScreen() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [editingMemoryId, setEditingMemoryId] = useState<number | null>(null);
   const [memoryDraft, setMemoryDraft] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null);
+  const [clearPending, setClearPending] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -47,18 +49,6 @@ export default function HistoryScreen() {
     refresh();
   }, [refresh]);
 
-  // Re-check count after delete/clear
-  const afterDelete = async () => {
-    const count = await getHistoryCount();
-    setTotal(count);
-    const maxPage = Math.max(1, Math.ceil(count / PAGE_SIZE));
-    if (page > maxPage) {
-      setPage(maxPage);
-    } else {
-      refresh();
-    }
-  };
-
   const handleCopy = (text: string) => {
     Share.share({message: text});
   };
@@ -69,18 +59,40 @@ export default function HistoryScreen() {
       {
         text: '删除',
         style: 'destructive',
-        onPress: async () => {
-          await deleteHistory(id);
-          setExpanded(prev => {
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-          });
-          await afterDelete();
-        },
+        onPress: () => setDeleteTarget(id),
       },
     ]);
   };
+
+  useEffect(() => {
+    if (deleteTarget === null) return;
+    let cancelled = false;
+    const id = deleteTarget;
+    deleteHistory(id)
+      .then(async () => {
+        if (cancelled) return;
+        setExpanded(prev => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        const count = await getHistoryCount();
+        if (cancelled) return;
+        setTotal(count);
+        const maxPage = Math.max(1, Math.ceil(count / PAGE_SIZE));
+        if (page > maxPage) {
+          setPage(maxPage);
+        } else {
+          const {rows} = await loadHistoryPage(page, PAGE_SIZE);
+          if (!cancelled) setRecords(rows);
+        }
+      })
+      .catch(e => console.warn('Delete error:', e))
+      .finally(() => {
+        if (!cancelled) setDeleteTarget(null);
+      });
+    return () => { cancelled = true; };
+  }, [deleteTarget, page]);
 
   const beginMemoryEdit = (record: HistoryRow) => {
     setEditingMemoryId(record.id);
@@ -120,15 +132,31 @@ export default function HistoryScreen() {
       {
         text: '清空',
         style: 'destructive',
-        onPress: async () => {
-          await clearHistory();
-          setExpanded(new Set());
-          setPage(1);
-          await refresh();
-        },
+        onPress: () => setClearPending(true),
       },
     ]);
   };
+
+  useEffect(() => {
+    if (!clearPending) return;
+    let cancelled = false;
+    clearHistory()
+      .then(async () => {
+        if (cancelled) return;
+        setExpanded(new Set());
+        setPage(1);
+        const {rows, total: t} = await loadHistoryPage(1, PAGE_SIZE);
+        if (!cancelled) {
+          setRecords(rows);
+          setTotal(t);
+        }
+      })
+      .catch(e => console.warn('Clear error:', e))
+      .finally(() => {
+        if (!cancelled) setClearPending(false);
+      });
+    return () => { cancelled = true; };
+  }, [clearPending]);
 
   const toggleExpand = (id: number) => {
     setExpanded(prev => {
