@@ -54,6 +54,11 @@ export default function HomeScreen() {
     return String(n);
   };
 
+  const charsPerMin = (chars: number, durationSec: number) => {
+    const minutes = Math.max(1, durationSec / 60);
+    return Math.round(chars / minutes);
+  };
+
   const chartData: Array<{label: string} & StatRow> =
     dim === 'day' ? stats.daily.map(d => ({...d, label: d.date.slice(5)})) :
     dim === 'week' ? stats.weekly :
@@ -80,6 +85,12 @@ export default function HomeScreen() {
               <Text style={s.highlightUnit}>处理字数</Text>
             </View>
             <View style={s.highlightItem}>
+              <Text style={s.highlightValue}>
+                {charsPerMin(stats.today.original_chars + stats.today.enhanced_chars, stats.today.audio_duration_sec)}
+              </Text>
+              <Text style={s.highlightUnit}>字/分钟</Text>
+            </View>
+            <View style={s.highlightItem}>
               <Text style={s.highlightValue}>{stats.today.recording_count}</Text>
               <Text style={s.highlightUnit}>录音次数</Text>
             </View>
@@ -94,6 +105,12 @@ export default function HomeScreen() {
           <View style={s.card}>
             <Text style={s.cardValue}>{formatDuration(Math.round(stats.thisMonth.audio_duration_sec))}</Text>
             <Text style={s.cardLabel}>本月时长</Text>
+          </View>
+          <View style={s.card}>
+            <Text style={s.cardValue}>
+              {charsPerMin(stats.total.original_chars + stats.total.enhanced_chars, stats.total.audio_duration_sec)}
+            </Text>
+            <Text style={s.cardLabel}>累计效率 字/分钟</Text>
           </View>
         </View>
 
