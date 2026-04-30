@@ -68,9 +68,10 @@ export default function MemoryScreen() {
       {
         text: '删除',
         style: 'destructive',
-        onPress: async () => {
-          await deleteMemoryCorpus(id);
-          refresh();
+        onPress: () => {
+          deleteMemoryCorpus(id)
+            .then(() => refresh())
+            .catch(e => console.warn('Delete error:', e));
         },
       },
     ]);
@@ -141,9 +142,11 @@ export default function MemoryScreen() {
               </>
             ) : (
               <>
-                <Text style={[s.itemTitle, !enabled && s.itemTextDisabled]}>
-                  {item.title}
-                </Text>
+                {item.type === 'markdown' && (
+                  <Text style={[s.itemTitle, !enabled && s.itemTextDisabled]}>
+                    {item.title}
+                  </Text>
+                )}
                 <Text style={[s.itemPreview, !enabled && s.itemTextDisabled]} numberOfLines={3}>
                   {preview}
                 </Text>
@@ -259,14 +262,14 @@ function makeStyles(c: ThemeColors) {
     itemTextDisabled: {opacity: 0.4},
     moreHint: {fontSize: 11, color: c.textMuted, marginTop: 4},
 
-    actions: {marginLeft: 10},
+    actions: {flexDirection: 'row', marginLeft: 10, alignSelf: 'flex-start'},
     actionBtn: {
       paddingHorizontal: 12,
       paddingVertical: 5,
       borderRadius: 4,
       borderWidth: 1,
       borderColor: c.border,
-      marginBottom: 4,
+      marginLeft: 6,
       alignItems: 'center',
     },
     actionText: {fontSize: 11, color: c.textSecondary},

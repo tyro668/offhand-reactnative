@@ -282,8 +282,7 @@ export default function HistoryScreen() {
 function memoryTitleFromHistory(content: string, createdAt: string): string {
   const firstLine = content.split(/\r?\n/).find(line => line.trim())?.trim() ?? '';
   const compact = firstLine.replace(/\s+/g, ' ');
-  const prefix = compact.length > 18 ? `${compact.slice(0, 18)}...` : compact;
-  return prefix ? `历史精选：${prefix}` : `历史精选：${createdAt}`;
+  return compact.length > 18 ? `${compact.slice(0, 18)}...` : (compact || createdAt);
 }
 
 function makeStyles(c: ThemeColors) {

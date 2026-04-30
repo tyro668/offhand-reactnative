@@ -55,6 +55,7 @@ yarn-error.log
 
 # Bundle artifact
 *.jsbundle
+dist/
 
 # Sherpa-onnx headers are kept for compilation; runtime binaries are downloaded
 # on demand into the app data directory.

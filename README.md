@@ -38,35 +38,22 @@ macOS runtime 安装到：
 ## 辅助功能权限
 
 首次启动需授权辅助功能权限（F键全局监听）：
-系统设置 → 隐私与安全性 → 辅助功能 → 开启「OffhandReactnative」
+系统设置 → 隐私与安全性 → 辅助功能 → 开启「释手」
 
 ## 构建 Release 版本
 
 ```sh
-# 1. 修复代码生成器兼容性（react-native-macos 版本差异）
-rm -rf node_modules/react-native-macos/node_modules/@react-native/codegen
-cp -r node_modules/@react-native/codegen node_modules/react-native-macos/node_modules/@react-native/codegen
-
-# 2. 修复 fmt 库 consteval 兼容性（macOS SDK 26.x）
-sed -i '' 's/#elif defined(__cpp_consteval)/#elif defined(__APPLE__)\n#  define FMT_USE_CONSTEVAL 0\n#elif defined(__cpp_consteval)/' \
-  macos/Pods/fmt/include/fmt/base.h
-
-# 3. 安装 CocoaPods 依赖
-cd macos && pod install && cd ..
-
-# 4. 构建 Release
-cd macos
-xcodebuild -workspace OffhandReactnative.xcworkspace \
-  -scheme OffhandReactnative-macOS \
-  -configuration Release \
-  -destination "platform=macOS" \
-  -derivedDataPath build \
-  build
-cd ..
-
-# 5. 产物路径
-open macos/build/Build/Products/Release/OffhandReactnative.app
+npm run macos:release
+# 或
+npm run build:release
 ```
+
+Release 脚本会生成 macOS 图标、同步 react-native-macos codegen、在需要时执行
+`pod install`、应用 fmt 的 macOS SDK 兼容补丁、构建 Release app，并生成 zip 包。
+
+产物路径：
+- App: `macos/build/Build/Products/Release/释手.app`
+- Zip: `dist/释手-macOS-0.0.1.zip`
 
 ## 项目结构
 

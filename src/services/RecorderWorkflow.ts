@@ -433,7 +433,7 @@ function buildMemoryContext(
 
     const header = [
       `### ${item.title || '未命名语料'}`,
-      `类型：${item.type === 'markdown' ? 'Markdown 文件语料' : '历史精选语料'}`,
+      `类型：${item.type === 'markdown' ? 'Markdown 文件语料' : '文本语料'}`,
       item.source_path ? `来源：${item.source_path}` : '',
     ].filter(Boolean).join('\n');
     const remaining = MAX_MEMORY_CONTEXT_CHARS - usedChars;

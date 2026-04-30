@@ -8,6 +8,8 @@
     "icons:macos": "bash scripts/generate-macos-icons.sh",
     "macos": "node scripts/run-macos-dev.js",
     "macos:clean": "rm -rf ~/Library/Developer/Xcode/DerivedData/OffhandReactnative-* && node scripts/run-macos-dev.js",
+    "macos:release": "bash scripts/build-macos-release.sh",
+    "build:release": "npm run macos:release",
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",

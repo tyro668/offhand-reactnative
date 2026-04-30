@@ -66,6 +66,49 @@ export default function ASRSettings({config, onSave, onBack}: Props) {
 
   const currentModels = engine === 'sensevoice' ? SENSEVOICE_MODELS : WHISPER_MODELS;
 
+  // Check which models are already downloaded on mount
+  useEffect(() => {
+    let cancelled = false;
+    const checkModels = async () => {
+      const {SherpaTranscriber} = NativeModules;
+      if (!SherpaTranscriber?.isModelReady) {
+        return;
+      }
+      try {
+        const runtimeReady = await SherpaTranscriber.isRuntimeReady();
+        if (!runtimeReady) {
+          return;
+        }
+        const allModels = [
+          ...SENSEVOICE_MODELS.map(m => ({engine: 'sensevoice', key: m.key})),
+          ...WHISPER_MODELS.map(m => ({engine: 'whisper', key: m.key})),
+        ];
+        const results: Record<string, boolean> = {};
+        for (const m of allModels) {
+          try {
+            results[m.key] = await SherpaTranscriber.isModelReady(m.engine, m.key);
+          } catch {
+            results[m.key] = false;
+          }
+        }
+        if (cancelled) return;
+        setDownloads(prev => {
+          const next = {...prev};
+          for (const m of allModels) {
+            if (results[m.key] && (!next[m.key] || next[m.key].status === 'none')) {
+              next[m.key] = {progress: 100, status: 'done'};
+            }
+          }
+          return next;
+        });
+      } catch (e) {
+        console.log('[ASR] checkModelReady failed:', e);
+      }
+    };
+    checkModels();
+    return () => { cancelled = true; };
+  }, []);
+
   const startModelFileDownload = useCallback((modelKey: string) => {
     const files = getModelFiles(modelKey);
     console.log('[ASR] startModelFileDownload:', modelKey, 'files:', files.length);
