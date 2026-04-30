@@ -2,12 +2,12 @@ import React, {useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   ScrollView,
   TextInput,
   Share,
 } from 'react-native';
+import TouchableOpacity from '../components/TouchableOpacityCompat';
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
 import {DEFAULT_SYSTEM_PROMPT} from '../models/defaultPrompt';

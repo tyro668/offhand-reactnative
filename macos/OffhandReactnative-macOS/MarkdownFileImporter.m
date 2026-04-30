@@ -13,6 +13,8 @@ RCT_EXPORT_MODULE();
 RCT_EXPORT_METHOD(importMarkdownFile:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject) {
   dispatch_async(dispatch_get_main_queue(), ^{
+    [NSApp activateIgnoringOtherApps:YES];
+
     NSOpenPanel *panel = [NSOpenPanel openPanel];
     panel.allowsMultipleSelection = NO;
     panel.canChooseDirectories = NO;
@@ -27,11 +29,13 @@ RCT_EXPORT_METHOD(importMarkdownFile:(RCTPromiseResolveBlock)resolve
     if (markdownType) {
       [allowedTypes addObject:markdownType];
     }
-    panel.allowedContentTypes = allowedTypes;
+    if (allowedTypes.count > 0) {
+      panel.allowedContentTypes = allowedTypes;
+    }
     panel.title = @"选择 Markdown 语料文件";
     panel.prompt = @"添加";
 
-    [panel beginWithCompletionHandler:^(NSModalResponse result) {
+    void (^completionHandler)(NSModalResponse) = ^(NSModalResponse result) {
       if (result != NSModalResponseOK) {
         resolve([NSNull null]);
         return;
@@ -59,7 +63,14 @@ RCT_EXPORT_METHOD(importMarkdownFile:(RCTPromiseResolveBlock)resolve
         @"filePath": url.path ?: @"",
         @"content": content ?: @"",
       });
-    }];
+    };
+
+    NSWindow *hostWindow = NSApp.keyWindow ?: NSApp.mainWindow;
+    if (hostWindow) {
+      [panel beginSheetModalForWindow:hostWindow completionHandler:completionHandler];
+    } else {
+      [panel beginWithCompletionHandler:completionHandler];
+    }
   });
 }
 

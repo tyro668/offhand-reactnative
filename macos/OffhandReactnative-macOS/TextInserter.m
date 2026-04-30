@@ -63,11 +63,24 @@ RCT_EXPORT_METHOD(insertText:(NSString *)text
   if (err == kAXErrorSuccess && selectedRange) {
     // There's a selection or cursor position - set the value
     err = AXUIElementSetAttributeValue(focused, kAXSelectedTextAttribute, (__bridge CFTypeRef)text);
+    if (selectedRange) CFRelease(selectedRange);
     if (err == kAXErrorSuccess) {
+      // Verify the write actually took effect — webview-based apps
+      // (Tauri/Electron) may report success without inserting text.
+      usleep(50000);
+      CFTypeRef currentValue = NULL;
+      AXError readErr = AXUIElementCopyAttributeValue(focused, kAXValueAttribute, &currentValue);
       CFRelease(focused);
-      if (selectedRange) CFRelease(selectedRange);
-      return YES;
+      if (readErr == kAXErrorSuccess && currentValue) {
+        NSString *fullValue = (__bridge NSString *)currentValue;
+        BOOL didInsert = [fullValue containsString:text];
+        CFRelease(currentValue);
+        if (didInsert) return YES;
+      }
+      NSLog(@"[TextInserter] accessibility write not verified; falling back to pasteboard.");
+      return NO;
     }
+  } else {
     if (selectedRange) CFRelease(selectedRange);
   }
 

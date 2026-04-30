@@ -104,6 +104,11 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="AutolinkedNativeModules.g.h" />
     <ClInclude Include="MarkdownFileImporter.h" />
+    <ClInclude Include="AppPaths.h" />
+    <ClInclude Include="ModelDownloader.h" />
+    <ClInclude Include="TextInserter.h" />
+    <ClInclude Include="AudioRecorder.h" />
+    <ClInclude Include="OverlayManager.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>

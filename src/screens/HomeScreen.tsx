@@ -1,5 +1,6 @@
 import React, {useState, useCallback, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
+import {View, Text, StyleSheet, ScrollView} from 'react-native';
+import TouchableOpacity from '../components/TouchableOpacityCompat';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
 import {loadStatsSummary, type StatsSummary, type StatRow} from '../db/database';
 
@@ -54,6 +55,11 @@ export default function HomeScreen() {
     return String(n);
   };
 
+  const formatK = (n: number) => {
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+    return String(n);
+  };
+
   const charsPerMin = (chars: number, durationSec: number) => {
     const minutes = Math.max(1, durationSec / 60);
     return Math.round(chars / minutes);
@@ -65,6 +71,12 @@ export default function HomeScreen() {
     stats.monthly;
 
   const maxRecordingCount = Math.max(1, ...chartData.map(d => d.recording_count));
+  const maxToken = Math.max(1, ...chartData.map(d => Math.max(d.input_tokens, d.output_tokens)));
+
+  const tokenBarHeight = (val: number) => {
+    if (val <= 0) return 2;
+    return Math.max(2, (Math.log2(val + 1) / Math.log2(maxToken + 1)) * 90);
+  };
 
   return (
     <View style={s.container}>
@@ -80,13 +92,13 @@ export default function HomeScreen() {
             </View>
             <View style={s.highlightItem}>
               <Text style={s.highlightValue}>
-                {formatCount(stats.today.original_chars + stats.today.enhanced_chars)}
+                {formatCount(stats.today.enhanced_chars)}
               </Text>
               <Text style={s.highlightUnit}>处理字数</Text>
             </View>
             <View style={s.highlightItem}>
               <Text style={s.highlightValue}>
-                {charsPerMin(stats.today.original_chars + stats.today.enhanced_chars, stats.today.audio_duration_sec)}
+                {charsPerMin(stats.today.enhanced_chars, stats.today.audio_duration_sec)}
               </Text>
               <Text style={s.highlightUnit}>字/分钟</Text>
             </View>
@@ -108,7 +120,7 @@ export default function HomeScreen() {
           </View>
           <View style={s.card}>
             <Text style={s.cardValue}>
-              {charsPerMin(stats.total.original_chars + stats.total.enhanced_chars, stats.total.audio_duration_sec)}
+              {charsPerMin(stats.total.enhanced_chars, stats.total.audio_duration_sec)}
             </Text>
             <Text style={s.cardLabel}>累计效率 字/分钟</Text>
           </View>
@@ -116,23 +128,12 @@ export default function HomeScreen() {
 
         <View style={s.cardRow}>
           <View style={s.card}>
-            <Text style={s.cardValue}>{formatCount(stats.total.original_chars)}</Text>
-            <Text style={s.cardLabel}>累计输入字数</Text>
-          </View>
-          <View style={s.card}>
             <Text style={s.cardValue}>{formatCount(stats.total.enhanced_chars)}</Text>
             <Text style={s.cardLabel}>累计输出字数</Text>
           </View>
-        </View>
-
-        <View style={s.cardRow}>
-          <View style={s.card}>
-            <Text style={s.cardValue}>{formatCount(stats.total.input_tokens)}</Text>
-            <Text style={s.cardLabel}>输入 Token</Text>
-          </View>
           <View style={s.card}>
             <Text style={s.cardValue}>{formatCount(stats.total.output_tokens)}</Text>
-            <Text style={s.cardLabel}>输出 Token</Text>
+            <Text style={s.cardLabel}>累计 Token</Text>
           </View>
         </View>
 
@@ -180,23 +181,21 @@ export default function HomeScreen() {
         <Text style={s.sectionTitle}>Token 消耗</Text>
         <View style={s.chartCard}>
           <View style={s.barChart}>
-            {chartData.map(d => {
-              const total = d.input_tokens + d.output_tokens;
-              const inPct = total > 0 ? d.input_tokens / total : 0;
-              const outPct = total > 0 ? d.output_tokens / total : 0;
-              return (
-                <View key={d.label} style={s.barColumn}>
-                  <Text style={s.barValue}>{total > 0 ? formatCount(total) : ''}</Text>
-                  <View style={s.barWrap}>
-                    <View style={s.barStack}>
-                      <View style={[s.barSegment, {height: Math.max(0, inPct * 40), backgroundColor: colors.accent}]} />
-                      <View style={[s.barSegment, {height: Math.max(0, outPct * 40), backgroundColor: colors.textMuted}]} />
-                    </View>
+            {chartData.map(d => (
+              <View key={d.label} style={s.barColumn}>
+                <View style={s.tokenPair}>
+                  <View style={s.tokenBarCol}>
+                    <Text style={s.tokenBarValue}>{formatK(d.input_tokens)}</Text>
+                    <View style={[s.tokenBar, {height: tokenBarHeight(d.input_tokens), backgroundColor: colors.accent}]} />
                   </View>
-                  <Text style={s.barLabel}>{d.label}</Text>
+                  <View style={s.tokenBarCol}>
+                    <Text style={s.tokenBarValue}>{formatK(d.output_tokens)}</Text>
+                    <View style={[s.tokenBar, {height: tokenBarHeight(d.output_tokens), backgroundColor: colors.textMuted}]} />
+                  </View>
                 </View>
-              );
-            })}
+                <Text style={s.barLabel}>{d.label}</Text>
+              </View>
+            ))}
           </View>
           <View style={s.legend}>
             <View style={s.legendItem}>
@@ -243,7 +242,7 @@ function makeStyles(c: ThemeColors) {
 
     sectionTitle: {fontSize: 13, fontWeight: '600', color: c.textMuted, marginTop: 20, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1},
     chartCard: {backgroundColor: c.card, borderRadius: 12, padding: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, marginBottom: 8},
-    barChart: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: 130},
+    barChart: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', minHeight: 130},
     barColumn: {alignItems: 'center', flex: 1},
     barValue: {fontSize: 10, color: c.textMuted, marginBottom: 4},
     barWrap: {flex: 1, justifyContent: 'flex-end', width: '100%', alignItems: 'center'},
@@ -255,5 +254,11 @@ function makeStyles(c: ThemeColors) {
     legendItem: {flexDirection: 'row', alignItems: 'center', marginHorizontal: 8},
     legendDot: {width: 8, height: 8, borderRadius: 4, marginRight: 4},
     legendText: {fontSize: 11, color: c.textMuted},
+
+    // Token chart: side-by-side bars
+    tokenPair: {flexDirection: 'row', alignItems: 'flex-end', flex: 1, paddingTop: 16},
+    tokenBarCol: {alignItems: 'center', marginHorizontal: 1},
+    tokenBarValue: {fontSize: 9, color: c.textMuted, marginBottom: 3},
+    tokenBar: {width: 7, borderRadius: 2, minHeight: 2},
   });
 }

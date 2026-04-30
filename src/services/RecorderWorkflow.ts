@@ -11,6 +11,7 @@ import {
   enhanceText,
   getEnhancementRequestBudget,
 } from './textEnhancement';
+import {buildMemoryContextUsage} from './memoryContext';
 
 type OverlayManagerModule = {
   startMonitoring: () => void;
@@ -73,7 +74,6 @@ const audioEmitter = AudioRecorder
   : null;
 
 const LOG_PREFIX = '[RecorderWorkflow]';
-const MAX_MEMORY_CONTEXT_CHARS = 12000;
 
 export interface OverlayState {
   state: string;
@@ -175,17 +175,19 @@ export function useRecorder() {
           originalText: asrOriginalText,
           enhancedText: enhanced,
           enhanceElapsedMs: enhancement.elapsedMs,
+          inputTokens: enhancement.inputTokens,
+          outputTokens: enhancement.outputTokens,
         });
         appendLog(
-          `history saved. originalChars=${asrOriginalText.length} enhancedChars=${enhanced.length} enhanceElapsedMs=${enhancement.elapsedMs} same=${asrOriginalText === enhanced}`,
+          `history saved. originalChars=${asrOriginalText.length} enhancedChars=${enhanced.length} enhanceElapsedMs=${enhancement.elapsedMs} inputTokens=${enhancement.inputTokens} outputTokens=${enhancement.outputTokens} same=${asrOriginalText === enhanced}`,
         );
 
         await addStat({
           audioDurationSec: audioDurationRef.current,
           originalChars: asrOriginalText.length,
           enhancedChars: enhanced.length,
-          inputTokens: Math.ceil(asrOriginalText.length * 0.5),
-          outputTokens: Math.ceil(enhanced.length * 0.5),
+          inputTokens: enhancement.inputTokens,
+          outputTokens: enhancement.outputTokens,
         });
         appendLog('stats recorded.');
         hideOverlay();
@@ -357,7 +359,7 @@ async function transcribeAudio(
 async function doEnhanceText(
   text: string,
   appendLog: (message: string) => void,
-): Promise<{text: string; elapsedMs: number}> {
+): Promise<{text: string; elapsedMs: number; inputTokens: number; outputTokens: number}> {
   const startedAt = Date.now();
   try {
     const configStartedAt = Date.now();
@@ -375,15 +377,18 @@ async function doEnhanceText(
       return {
         text: cleanupDictationTextLocally(text),
         elapsedMs: Date.now() - startedAt,
+        inputTokens: 0,
+        outputTokens: 0,
       };
     }
 
     const budget = getEnhancementRequestBudget(text.length);
     const memoryStartedAt = Date.now();
     const memoryItems = await loadEnabledMemoryCorpus();
-    const memoryContext = buildMemoryContext(memoryItems);
+    const memoryUsage = buildMemoryContextUsage(memoryItems);
+    const memoryContext = memoryUsage.context;
     appendLog(
-      `memory corpus loaded elapsedMs=${Date.now() - memoryStartedAt} enabledItems=${memoryItems.length} contextChars=${memoryContext.length}`,
+      `memory corpus loaded elapsedMs=${Date.now() - memoryStartedAt} enabledItems=${memoryItems.length} contextChars=${memoryContext.length} contextTokens=${memoryUsage.passedTokens}`,
     );
 
     appendLog(
@@ -391,7 +396,7 @@ async function doEnhanceText(
     );
 
     const requestStartedAt = Date.now();
-    const enhanced = await enhanceText(text, {
+    const result = await enhanceText(text, {
       provider: cfg.provider,
       model: cfg.model,
       baseUrl: cfg.base_url,
@@ -400,12 +405,15 @@ async function doEnhanceText(
       memoryContext,
     });
     const requestElapsedMs = Date.now() - requestStartedAt;
+    const outputText = result.text || cleanupDictationTextLocally(text);
     appendLog(
-      `text enhancement request finished requestElapsedMs=${requestElapsedMs} totalElapsedMs=${Date.now() - startedAt} outputChars=${enhanced.length}`,
+      `text enhancement request finished requestElapsedMs=${requestElapsedMs} networkElapsedMs=${result.timing.requestElapsedMs} parseElapsedMs=${result.timing.parseElapsedMs} payloadBytes=${result.timing.payloadBytes} totalElapsedMs=${Date.now() - startedAt} outputChars=${outputText.length} inputTokens=${result.inputTokens} outputTokens=${result.outputTokens}`,
     );
     return {
-      text: enhanced || cleanupDictationTextLocally(text),
+      text: outputText,
       elapsedMs: requestElapsedMs,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -415,38 +423,10 @@ async function doEnhanceText(
     return {
       text: cleanupDictationTextLocally(text),
       elapsedMs: Date.now() - startedAt,
+      inputTokens: 0,
+      outputTokens: 0,
     };
   }
-}
-
-function buildMemoryContext(
-  items: Array<{type: string; title: string; content: string; source_path?: string | null}>,
-): string {
-  const sections: string[] = [];
-  let usedChars = 0;
-
-  for (const item of items) {
-    const content = item.content.trim();
-    if (!content) {
-      continue;
-    }
-
-    const header = [
-      `### ${item.title || '未命名语料'}`,
-      `类型：${item.type === 'markdown' ? 'Markdown 文件语料' : '文本语料'}`,
-      item.source_path ? `来源：${item.source_path}` : '',
-    ].filter(Boolean).join('\n');
-    const remaining = MAX_MEMORY_CONTEXT_CHARS - usedChars;
-    if (remaining <= 0) {
-      break;
-    }
-
-    const section = `${header}\n${content}`.slice(0, remaining);
-    sections.push(section);
-    usedChars += section.length;
-  }
-
-  return sections.join('\n\n');
 }
 
 function endpointLabel(baseUrl: string): string {

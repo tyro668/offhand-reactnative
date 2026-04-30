@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
+import {View, Text, StyleSheet, ScrollView} from 'react-native';
+import TouchableOpacity from '../components/TouchableOpacityCompat';
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
 import SettingsRow from '../components/SettingsRow';

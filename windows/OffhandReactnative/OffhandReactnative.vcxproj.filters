@@ -30,6 +30,21 @@
     <ClInclude Include="MarkdownFileImporter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="AppPaths.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ModelDownloader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TextInserter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AudioRecorder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="OverlayManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="pch.h">
       <Filter>Header Files</Filter>
     </ClInclude>

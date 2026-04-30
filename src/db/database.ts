@@ -106,6 +106,12 @@ export async function getDB(): Promise<SQLite.SQLiteDatabase> {
   try {
     await db.executeSql('ALTER TABLE history ADD COLUMN enhance_elapsed_ms INTEGER');
   } catch {}
+  try {
+    await db.executeSql('ALTER TABLE history ADD COLUMN input_tokens INTEGER');
+  } catch {}
+  try {
+    await db.executeSql('ALTER TABLE history ADD COLUMN output_tokens INTEGER');
+  } catch {}
 
   await db.executeSql(`
     CREATE TABLE IF NOT EXISTS memory_corpus (
@@ -340,6 +346,8 @@ export interface HistoryRow {
   original_text: string;
   enhanced_text: string;
   enhance_elapsed_ms?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
   created_at: string;
 }
 
@@ -347,15 +355,19 @@ export async function addHistory(entry: {
   originalText: string;
   enhancedText: string;
   enhanceElapsedMs?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
 }): Promise<void> {
   try {
     const database = await getDB();
     await database.executeSql(
-      'INSERT INTO history (original_text, enhanced_text, enhance_elapsed_ms) VALUES (?, ?, ?)',
+      'INSERT INTO history (original_text, enhanced_text, enhance_elapsed_ms, input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?)',
       [
         entry.originalText,
         entry.enhancedText,
         entry.enhanceElapsedMs ?? null,
+        entry.inputTokens ?? null,
+        entry.outputTokens ?? null,
       ],
     );
   } catch (e) {
@@ -377,7 +389,7 @@ export async function loadHistoryPage(
 
     const offset = (page - 1) * pageSize;
     const [results] = await database.executeSql(
-      'SELECT id, original_text, enhanced_text, enhance_elapsed_ms, created_at FROM history ORDER BY id DESC LIMIT ? OFFSET ?',
+      'SELECT id, original_text, enhanced_text, enhance_elapsed_ms, input_tokens, output_tokens, created_at FROM history ORDER BY id DESC LIMIT ? OFFSET ?',
       [pageSize, offset],
     );
     const rows: HistoryRow[] = [];

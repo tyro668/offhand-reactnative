@@ -74,7 +74,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     memoryEmptySentences: '暂无语句',
     homeMenu: '主页',
     memoryMenu: '记忆库',
-    historyMenu: '历史',
+    historyMenu: '历史会话',
     settingsMenu: '设置',
     speechModel: '语音模型',
     speechModelDesc: '配置语音识别引擎参数',

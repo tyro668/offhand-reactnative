@@ -88,8 +88,8 @@ function AppContent({initialConfig}: {initialConfig: Config}) {
 
   const menuItems = [
     {key: 'home', label: t('homeMenu'), icon: '⌂'},
-    {key: 'memory', label: t('memoryMenu'), icon: '▤'},
     {key: 'history', label: t('historyMenu'), icon: '◷'},
+    {key: 'memory', label: t('memoryMenu'), icon: '▤'},
     {key: 'settings', label: t('settingsMenu'), icon: '⚙'},
   ];
 

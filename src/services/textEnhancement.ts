@@ -12,7 +12,21 @@ const PROVIDERS: ProviderEntry[] = builtinProviders as ProviderEntry[];
 
 const MIN_TIMEOUT_MS = 3500;
 const MAX_TIMEOUT_MS = 9000;
-const TEST_TIMEOUT_MS = 10000;
+const TEST_TIMEOUT_MS = 6000;
+const TEST_MAX_TOKENS = 4;
+
+export interface TextModelRequestTiming {
+  payloadBytes: number;
+  requestElapsedMs: number;
+  parseElapsedMs: number;
+}
+
+interface ModelCallResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  timing: TextModelRequestTiming;
+}
 
 function getProtocol(provider: string): string {
   const p = PROVIDERS.find(pr => pr.provider === provider);
@@ -31,19 +45,47 @@ export function getEnhancementRequestBudget(inputChars: number): {
   };
 }
 
+function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff && i + 1 < value.length) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        i += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
-): Promise<Response> {
+): Promise<{response: Response; requestElapsedMs: number}> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
 
   try {
-    return await fetch(url, {
+    const response = await fetch(url, {
       ...init,
       signal: controller.signal,
     });
+    return {
+      response,
+      requestElapsedMs: Date.now() - startedAt,
+    };
   } catch (e) {
     if (e instanceof Error && e.name === 'AbortError') {
       throw new Error(`Text model request timed out after ${timeoutMs}ms`);
@@ -61,7 +103,9 @@ async function callOpenAI(params: {
   systemPrompt: string;
   userText: string;
   timeoutMs: number;
-}): Promise<string> {
+  maxTokens?: number;
+  temperature?: number;
+}): Promise<ModelCallResult> {
   const url = params.baseUrl.replace(/\/+$/, '') + '/chat/completions';
 
   const body: Record<string, unknown> = {
@@ -70,16 +114,20 @@ async function callOpenAI(params: {
       {role: 'system', content: params.systemPrompt},
       {role: 'user', content: params.userText},
     ],
-    temperature: 0.3,
+    temperature: params.temperature ?? 0.3,
   };
+  if (params.maxTokens !== undefined) {
+    body.max_tokens = params.maxTokens;
+  }
+  const payload = JSON.stringify(body);
 
-  const resp = await fetchWithTimeout(url, {
+  const {response: resp, requestElapsedMs} = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${params.apiKey}`,
     },
-    body: JSON.stringify(body),
+    body: payload,
   }, params.timeoutMs);
 
   if (!resp.ok) {
@@ -87,8 +135,23 @@ async function callOpenAI(params: {
     throw new Error(`OpenAI API error ${resp.status}: ${errText}`);
   }
 
+  const parseStartedAt = Date.now();
   const data = await resp.json();
-  return data.choices?.[0]?.message?.content?.trim() ?? '';
+  const parseElapsedMs = Date.now() - parseStartedAt;
+  const text = data.choices?.[0]?.message?.content?.trim() ?? '';
+  const usage = data.usage || {};
+  const inputTokens = usage.prompt_tokens ?? Math.ceil((params.systemPrompt.length + params.userText.length) * 0.4);
+  const outputTokens = usage.completion_tokens ?? Math.ceil(text.length * 0.4);
+  return {
+    text,
+    inputTokens,
+    outputTokens,
+    timing: {
+      payloadBytes: utf8ByteLength(payload),
+      requestElapsedMs,
+      parseElapsedMs,
+    },
+  };
 }
 
 async function callAnthropic(params: {
@@ -98,23 +161,28 @@ async function callAnthropic(params: {
   systemPrompt: string;
   userText: string;
   timeoutMs: number;
-}): Promise<string> {
+  maxTokens?: number;
+  temperature?: number;
+}): Promise<ModelCallResult> {
   const url = params.baseUrl.replace(/\/+$/, '') + '/v1/messages';
 
   const body = {
     model: params.model,
+    max_tokens: params.maxTokens ?? 1024,
+    temperature: params.temperature ?? 0.3,
     system: params.systemPrompt,
     messages: [{role: 'user', content: params.userText}],
   };
+  const payload = JSON.stringify(body);
 
-  const resp = await fetchWithTimeout(url, {
+  const {response: resp, requestElapsedMs} = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': params.apiKey,
       'anthropic-version': '2023-06-01',
     },
-    body: JSON.stringify(body),
+    body: payload,
   }, params.timeoutMs);
 
   if (!resp.ok) {
@@ -122,8 +190,23 @@ async function callAnthropic(params: {
     throw new Error(`Anthropic API error ${resp.status}: ${errText}`);
   }
 
+  const parseStartedAt = Date.now();
   const data = await resp.json();
-  return data.content?.[0]?.text?.trim() ?? '';
+  const parseElapsedMs = Date.now() - parseStartedAt;
+  const text = data.content?.[0]?.text?.trim() ?? '';
+  const usage = data.usage || {};
+  const inputTokens = usage.input_tokens ?? Math.ceil((params.systemPrompt.length + params.userText.length) * 0.4);
+  const outputTokens = usage.output_tokens ?? Math.ceil(text.length * 0.4);
+  return {
+    text,
+    inputTokens,
+    outputTokens,
+    timing: {
+      payloadBytes: utf8ByteLength(payload),
+      requestElapsedMs,
+      parseElapsedMs,
+    },
+  };
 }
 
 export interface EnhanceParams {
@@ -138,6 +221,7 @@ export interface EnhanceParams {
 export interface TextModelConnectionResult {
   latencyMs: number;
   outputText: string;
+  timing: TextModelRequestTiming;
 }
 
 function validateTextModelParams(params: EnhanceParams): void {
@@ -164,11 +248,11 @@ export async function testTextModelConnection(
   validateTextModelParams(params);
 
   const protocol = getProtocol(params.provider);
-  const systemPrompt = 'You are a connection test endpoint. Reply with OK only.';
-  const userText = 'Reply OK.';
+  const systemPrompt = 'Reply with OK only.';
+  const userText = 'OK';
   const startedAt = Date.now();
 
-  const outputText = protocol === 'anthropic'
+  const result = protocol === 'anthropic'
     ? await callAnthropic({
       baseUrl: params.baseUrl,
       apiKey: params.apiKey,
@@ -176,6 +260,8 @@ export async function testTextModelConnection(
       systemPrompt,
       userText,
       timeoutMs: TEST_TIMEOUT_MS,
+      maxTokens: TEST_MAX_TOKENS,
+      temperature: 0,
     })
     : await callOpenAI({
       baseUrl: params.baseUrl,
@@ -184,18 +270,28 @@ export async function testTextModelConnection(
       systemPrompt,
       userText,
       timeoutMs: TEST_TIMEOUT_MS,
+      maxTokens: TEST_MAX_TOKENS,
+      temperature: 0,
     });
 
   return {
     latencyMs: Date.now() - startedAt,
-    outputText,
+    outputText: result.text,
+    timing: result.timing,
   };
+}
+
+export interface EnhanceResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  timing: TextModelRequestTiming;
 }
 
 export async function enhanceText(
   inputText: string,
   params: EnhanceParams,
-): Promise<string> {
+): Promise<EnhanceResult> {
   if (!inputText.trim()) {
     throw new Error('Input text is empty');
   }
@@ -230,8 +326,8 @@ export async function enhanceText(
     });
   };
 
-  const first = await callModel(budget.timeoutMs);
-  return first.trim();
+  const result = await callModel(budget.timeoutMs);
+  return result;
 }
 
 function buildSystemPrompt(basePrompt: string, memoryContext?: string): string {

@@ -1,5 +1,6 @@
 import React from 'react';
-import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
+import {View, Text, StyleSheet} from 'react-native';
+import TouchableOpacity from './TouchableOpacityCompat';
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
 import {usePermissionStatus} from '../services/OverlayManager';

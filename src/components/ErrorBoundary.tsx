@@ -1,5 +1,6 @@
 import React from 'react';
-import {View, Text, ScrollView, StyleSheet, TouchableOpacity, Share} from 'react-native';
+import {View, Text, ScrollView, StyleSheet, Share} from 'react-native';
+import TouchableOpacity from './TouchableOpacityCompat';
 
 interface State {
   hasError: boolean;

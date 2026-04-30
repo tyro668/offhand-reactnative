@@ -2,12 +2,12 @@ import React, {useState, useCallback, useRef, useEffect} from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   ScrollView,
   NativeEventEmitter,
   NativeModules,
 } from 'react-native';
+import TouchableOpacity from '../components/TouchableOpacityCompat';
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
 import {

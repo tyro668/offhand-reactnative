@@ -2,11 +2,11 @@ import React from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   Animated,
   Dimensions,
 } from 'react-native';
+import TouchableOpacity from './TouchableOpacityCompat';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
 import {useI18n} from '../i18n/I18nContext';
 
@@ -46,12 +46,12 @@ export default function Drawer({
         Animated.timing(translateX, {
           toValue: 0,
           duration: 250,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
         Animated.timing(overlayOpacity, {
           toValue: 1,
           duration: 250,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
       ]).start();
     } else {
@@ -59,12 +59,12 @@ export default function Drawer({
         Animated.timing(translateX, {
           toValue: -DRAWER_WIDTH,
           duration: 200,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
         Animated.timing(overlayOpacity, {
           toValue: 0,
           duration: 200,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
       ]).start();
     }

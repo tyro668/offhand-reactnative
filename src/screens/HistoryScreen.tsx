@@ -3,12 +3,12 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ScrollView,
   Alert,
   Share,
   TextInput,
 } from 'react-native';
+import TouchableOpacity from '../components/TouchableOpacityCompat';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
 import {
   addMemoryCorpus,
@@ -171,27 +171,59 @@ export default function HistoryScreen() {
   };
 
   const formatRecordTime = (record: HistoryRow) => {
-    if (record.enhance_elapsed_ms == null) {
-      return record.created_at;
+    const parts: string[] = [record.created_at];
+    if (record.enhance_elapsed_ms != null) {
+      parts.push(`增强耗时 ${record.enhance_elapsed_ms} ms`);
     }
-    return `${record.created_at} · 增强耗时 ${record.enhance_elapsed_ms} ms`;
+    const hasTokens = record.input_tokens != null || record.output_tokens != null;
+    if (hasTokens) {
+      const input = record.input_tokens ?? 0;
+      const output = record.output_tokens ?? 0;
+      parts.push(`输入 tokens ${input} · 输出 tokens ${output}`);
+    }
+    return parts.join(' · ');
   };
 
   return (
     <View style={s.container}>
-      <View style={s.header}>
-        <Text style={s.title}>历史</Text>
-        {total > 0 && (
-          <TouchableOpacity onPress={handleClearAll}>
-            <Text style={s.clearText}>清空</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
       <ScrollView
         style={s.scroll}
         showsVerticalScrollIndicator={true}
         contentContainerStyle={s.scrollContent}>
+        {/* Pagination + Clear */}
+        {total > 0 && (
+          <View style={s.topBar}>
+            {totalPages > 1 && (
+              <View style={s.paginationCompact}>
+                <TouchableOpacity
+                  style={[s.pageBtn, page <= 1 && s.pageBtnDisabled]}
+                  onPress={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}>
+                  <Text style={[s.pageBtnText, page <= 1 && s.pageBtnTextDisabled]}>
+                    上一页
+                  </Text>
+                </TouchableOpacity>
+
+                <Text style={s.pageInfo}>
+                  {page} / {totalPages}
+                </Text>
+
+                <TouchableOpacity
+                  style={[s.pageBtn, page >= totalPages && s.pageBtnDisabled]}
+                  onPress={() => setPage(p => p + 1)}
+                  disabled={page >= totalPages}>
+                  <Text style={[s.pageBtnText, page >= totalPages && s.pageBtnTextDisabled]}>
+                    下一页
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            <TouchableOpacity onPress={handleClearAll}>
+              <Text style={s.clearText}>清空</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {records.length === 0 ? (
           <View style={s.empty}>
             <Text style={s.emptyText}>暂无历史记录</Text>
@@ -274,33 +306,6 @@ export default function HistoryScreen() {
           })
         )}
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <View style={s.pagination}>
-            <TouchableOpacity
-              style={[s.pageBtn, page <= 1 && s.pageBtnDisabled]}
-              onPress={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page <= 1}>
-              <Text style={[s.pageBtnText, page <= 1 && s.pageBtnTextDisabled]}>
-                上一页
-              </Text>
-            </TouchableOpacity>
-
-            <Text style={s.pageInfo}>
-              {page} / {totalPages}
-            </Text>
-
-            <TouchableOpacity
-              style={[s.pageBtn, page >= totalPages && s.pageBtnDisabled]}
-              onPress={() => setPage(p => p + 1)}
-              disabled={page >= totalPages}>
-              <Text style={[s.pageBtnText, page >= totalPages && s.pageBtnTextDisabled]}>
-                下一页
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
         <View style={s.bottomSpacer} />
       </ScrollView>
     </View>
@@ -319,15 +324,27 @@ function makeStyles(c: ThemeColors) {
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-end',
       paddingHorizontal: 28,
       paddingTop: 24,
       paddingBottom: 14,
     },
     title: {fontSize: 26, fontWeight: '700', color: c.text, letterSpacing: 2},
     clearText: {fontSize: 14, color: c.accent},
+    clearRow: {flexDirection: 'row', justifyContent: 'flex-end', paddingVertical: 8},
+    topBar: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    paginationCompact: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginRight: 16,
+    },
     scroll: {flex: 1},
-    scrollContent: {paddingHorizontal: 20},
+    scrollContent: {paddingHorizontal: 20, paddingTop: 12},
     empty: {paddingVertical: 60, alignItems: 'center'},
     emptyText: {fontSize: 14, color: c.textMuted},
 
