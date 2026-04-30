@@ -118,6 +118,7 @@ RCT_EXPORT_METHOD(insertText:(NSString *)text
 }
 
 - (BOOL)sendPasteShortcutToApplication:(NSRunningApplication *)targetApp {
+  (void)targetApp; // kept for call-site compatibility
   CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
   if (!source) {
     NSLog(@"[TextInserter] paste shortcut: failed to create event source");
@@ -141,18 +142,13 @@ RCT_EXPORT_METHOD(insertText:(NSString *)text
   }
   CGEventSetFlags(vUp, kCGEventFlagMaskCommand);
 
-  pid_t targetPid = targetApp ? targetApp.processIdentifier : 0;
-  NSString *targetBundleId = targetApp.bundleIdentifier ?: @"";
-  NSString *selfBundleId = NSBundle.mainBundle.bundleIdentifier ?: @"";
-  if (targetPid > 0 && ![targetBundleId isEqualToString:selfBundleId]) {
-    CGEventPostToPid(targetPid, vDown);
-    usleep(30000);
-    CGEventPostToPid(targetPid, vUp);
-  } else {
-    CGEventPost(kCGHIDEventTap, vDown);
-    usleep(30000);
-    CGEventPost(kCGHIDEventTap, vUp);
-  }
+  // Post via HID event tap so the system routes the event to the frontmost app's
+  // focused element.  CGEventPostToPid only delivers to a single process and
+  // breaks for multi-process apps like Electron/Tauri where the webview
+  // renderer lives in a different PID than the main process.
+  CGEventPost(kCGHIDEventTap, vDown);
+  usleep(30000);
+  CGEventPost(kCGHIDEventTap, vUp);
 
   CFRelease(vDown);
   CFRelease(vUp);

@@ -68,7 +68,7 @@ static const CGFloat kBarGap = 3;
   self.barViews = [NSMutableArray array];
   CGFloat barStartX = 98;
   for (NSInteger i = 0; i < kBarCount; i++) {
-    NSView *bar = [[NSView alloc] initWithFrame:NSMakeRect(barStartX + i * (kBarWidth + kBarGap), 14, kBarWidth, 8)];
+    NSView *bar = [[NSView alloc] initWithFrame:NSMakeRect(barStartX + i * (kBarWidth + kBarGap), (kPanelHeight - 8) / 2, kBarWidth, 8)];
     bar.wantsLayer = YES;
     bar.layer.backgroundColor = [[NSColor whiteColor] colorWithAlphaComponent:0.8].CGColor;
     bar.layer.cornerRadius = 2;
@@ -77,10 +77,14 @@ static const CGFloat kBarGap = 3;
     [self.barViews addObject:bar];
   }
 
-  // Status label
+  // Status label – vertically align its center to the dot's center
   CGFloat barEndX = barStartX + kBarCount * kBarWidth + (kBarCount - 1) * kBarGap;
+  CGFloat labelHeight = 16;
   self.statusLabel = [NSTextField labelWithString:@""];
-  self.statusLabel.frame = NSMakeRect(barEndX + 12, (kPanelHeight - 18) / 2, 130, 18);
+  self.statusLabel.frame = NSMakeRect(barEndX + 12,
+                                       self.dotView.frame.origin.y + dotSize / 2 - labelHeight / 2,
+                                       130,
+                                       labelHeight);
   self.statusLabel.font = [NSFont systemFontOfSize:13 weight:NSFontWeightRegular];
   self.statusLabel.textColor = [[NSColor whiteColor] colorWithAlphaComponent:0.6];
   self.statusLabel.alignment = NSTextAlignmentLeft;

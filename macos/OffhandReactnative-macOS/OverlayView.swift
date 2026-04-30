@@ -99,15 +99,16 @@ final class OverlayView: NSView {
       barViews.append(bar)
     }
 
-    // Status label
+    // Status label – vertically align its center to the dot's center
     let barEndX = barStartX
       + CGFloat(barCount) * barWidth
       + CGFloat(barCount - 1) * barGap
+    let labelHeight: CGFloat = 16
     statusLabel.frame = NSRect(
       x: barEndX + 12,
-      y: (bounds.height - 18) / 2,
+      y: dotView.frame.midY - labelHeight / 2,
       width: bounds.width - barEndX - 18,
-      height: 18
+      height: labelHeight
     )
     statusLabel.font = NSFont.systemFont(ofSize: 13, weight: .regular)
     statusLabel.textColor = NSColor.white.withAlphaComponent(0.7)
@@ -115,6 +116,7 @@ final class OverlayView: NSView {
     statusLabel.backgroundColor = .clear
     statusLabel.isBordered = false
     statusLabel.isEditable = false
+    statusLabel.isSelectable = false
     addSubview(statusLabel)
 
     startPulse()
