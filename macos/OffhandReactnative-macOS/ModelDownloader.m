@@ -2,6 +2,8 @@
 #import "AppPaths.h"
 #import <Cocoa/Cocoa.h>
 
+static NSString *const SherpaRuntimeKeySuffix = @"__sherpaRuntime";
+
 static void MDLog(NSString *format, ...) {
   va_list args;
   va_start(args, format);
@@ -24,6 +26,10 @@ static void MDLog(NSString *format, ...) {
     [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
     [fh closeFile];
   }
+}
+
+static BOOL MDIsSherpaRuntimeKey(NSString *modelKey) {
+  return [modelKey hasSuffix:SherpaRuntimeKeySuffix];
 }
 
 @interface ModelDownloader () <NSURLSessionDownloadDelegate>
@@ -62,10 +68,132 @@ RCT_EXPORT_MODULE();
 }
 
 - (NSString *)modelDirectoryForKey:(NSString *)modelKey {
+  if (MDIsSherpaRuntimeKey(modelKey)) {
+    NSString *dir = [[self sherpaRuntimeRoot] stringByAppendingPathComponent:@"downloads"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    return dir;
+  }
   NSString *root = [[AppPaths appDataDirectory] stringByAppendingPathComponent:@"models"];
   NSString *dir = [root stringByAppendingPathComponent:modelKey ?: @"unknown"];
   [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
   return dir;
+}
+
+- (NSString *)sherpaRuntimeRoot {
+  return [[AppPaths appDataDirectory] stringByAppendingPathComponent:@"sherpa-onnx/runtime"];
+}
+
+- (NSString *)sherpaRuntimeCurrentDirectory {
+  return [[self sherpaRuntimeRoot] stringByAppendingPathComponent:@"current"];
+}
+
+- (BOOL)isSherpaRuntimeReady {
+  NSString *libDir = [[self sherpaRuntimeCurrentDirectory] stringByAppendingPathComponent:@"lib"];
+  NSString *cApi = [libDir stringByAppendingPathComponent:@"libsherpa-onnx-c-api.dylib"];
+  BOOL hasCapi = [[NSFileManager defaultManager] fileExistsAtPath:cApi];
+  NSArray<NSString *> *items =
+      [[NSFileManager defaultManager] contentsOfDirectoryAtPath:libDir error:nil] ?: @[];
+  BOOL hasOnnxRuntime = NO;
+  for (NSString *item in items) {
+    if ([item hasPrefix:@"libonnxruntime."] && [item hasSuffix:@".dylib"]) {
+      hasOnnxRuntime = YES;
+      break;
+    }
+  }
+  return hasCapi && hasOnnxRuntime;
+}
+
+- (BOOL)installSherpaRuntimeArchive:(NSString *)archivePath error:(NSString **)errorOut {
+  NSFileManager *fm = [NSFileManager defaultManager];
+  NSString *root = [self sherpaRuntimeRoot];
+  NSString *tmp = [root stringByAppendingPathComponent:@"installing"];
+  NSString *current = [self sherpaRuntimeCurrentDirectory];
+
+  [fm removeItemAtPath:tmp error:nil];
+  if (![fm createDirectoryAtPath:tmp withIntermediateDirectories:YES attributes:nil error:nil]) {
+    if (errorOut) *errorOut = [NSString stringWithFormat:@"Failed to create runtime temp dir: %@", tmp];
+    return NO;
+  }
+
+  NSTask *task = [[NSTask alloc] init];
+  task.launchPath = @"/usr/bin/tar";
+  task.arguments = @[@"-xjf", archivePath, @"-C", tmp];
+  NSPipe *pipe = [NSPipe pipe];
+  task.standardOutput = pipe;
+  task.standardError = pipe;
+
+  NSError *launchError = nil;
+  if (![task launchAndReturnError:&launchError]) {
+    if (errorOut) *errorOut = launchError.localizedDescription ?: @"Failed to launch tar.";
+    [fm removeItemAtPath:tmp error:nil];
+    return NO;
+  }
+  [task waitUntilExit];
+  NSData *outData = [[pipe fileHandleForReading] readDataToEndOfFile];
+  NSString *tarOutput = [[NSString alloc] initWithData:outData encoding:NSUTF8StringEncoding] ?: @"";
+  if (task.terminationStatus != 0) {
+    if (errorOut) {
+      *errorOut = [NSString stringWithFormat:@"Failed to extract Sherpa runtime: %@", tarOutput];
+    }
+    [fm removeItemAtPath:tmp error:nil];
+    return NO;
+  }
+
+  NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:tmp error:nil] ?: @[];
+  NSString *runtimeDir = nil;
+  for (NSString *item in items) {
+    NSString *candidate = [tmp stringByAppendingPathComponent:item];
+    BOOL isDir = NO;
+    if (![fm fileExistsAtPath:candidate isDirectory:&isDir] || !isDir) continue;
+    NSString *cApi =
+        [candidate stringByAppendingPathComponent:@"lib/libsherpa-onnx-c-api.dylib"];
+    if ([fm fileExistsAtPath:cApi]) {
+      runtimeDir = candidate;
+      break;
+    }
+  }
+
+  if (!runtimeDir) {
+    if (errorOut) *errorOut = @"Extracted Sherpa runtime archive did not contain lib/libsherpa-onnx-c-api.dylib.";
+    [fm removeItemAtPath:tmp error:nil];
+    return NO;
+  }
+
+  [fm removeItemAtPath:current error:nil];
+  NSError *moveError = nil;
+  if (![fm moveItemAtPath:runtimeDir toPath:current error:&moveError]) {
+    if (errorOut) *errorOut = moveError.localizedDescription ?: @"Failed to install Sherpa runtime.";
+    [fm removeItemAtPath:tmp error:nil];
+    return NO;
+  }
+
+  [fm removeItemAtPath:tmp error:nil];
+  if (![self isSherpaRuntimeReady]) {
+    if (errorOut) *errorOut = @"Installed Sherpa runtime is incomplete.";
+    return NO;
+  }
+  MDLog(@"Installed Sherpa runtime to %@", current);
+  return YES;
+}
+
+- (BOOL)installSherpaRuntimeIfNeededFromDirectory:(NSString *)dir error:(NSString **)errorOut {
+  if ([self isSherpaRuntimeReady]) {
+    return YES;
+  }
+
+  NSArray<NSString *> *items = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil] ?: @[];
+  NSString *archivePath = nil;
+  for (NSString *item in items) {
+    if ([item hasSuffix:@".tar.bz2"]) {
+      archivePath = [dir stringByAppendingPathComponent:item];
+      break;
+    }
+  }
+  if (!archivePath) {
+    if (errorOut) *errorOut = [NSString stringWithFormat:@"Sherpa runtime archive not found in %@", dir];
+    return NO;
+  }
+  return [self installSherpaRuntimeArchive:archivePath error:errorOut];
 }
 
 RCT_EXPORT_METHOD(downloadModelFiles:(NSString *)modelKey
@@ -76,20 +204,57 @@ RCT_EXPORT_METHOD(downloadModelFiles:(NSString *)modelKey
 
   NSString *modelDir = [self modelDirectoryForKey:modelKey];
   MDLog(@"modelDir=%@", modelDir);
+  BOOL isRuntimeDownload = MDIsSherpaRuntimeKey(modelKey);
 
-  // Check if already downloaded (all files exist with non-zero size)
+  if (isRuntimeDownload && [self isSherpaRuntimeReady]) {
+    MDLog(@"Sherpa runtime already installed, skipping download");
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [self sendEventWithName:@"onDownloadComplete"
+                         body:@{@"modelKey": modelKey ?: @"",
+                                @"success": @YES,
+                                @"path": [self sherpaRuntimeCurrentDirectory]}];
+    });
+    resolve(@{@"path": [self sherpaRuntimeCurrentDirectory], @"status": @"already_downloaded"});
+    return;
+  }
+
+  // Check if already downloaded (all files exist with non-zero size).
+  // For tokens.txt files we additionally require a plausible (text-shaped, <50MB)
+  // body so corrupt previous downloads do not get reused.
   BOOL allExist = files.count > 0;
   for (NSDictionary *file in files) {
     NSString *name = file[@"name"];
     NSString *path = [modelDir stringByAppendingPathComponent:name];
     NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
-    if (!attrs || [attrs[NSFileSize] longLongValue] <= 0) {
+    long long sz = attrs ? [attrs[NSFileSize] longLongValue] : 0;
+    if (!attrs || sz <= 0) {
+      allExist = NO;
+      break;
+    }
+    if ([name.lowercaseString hasSuffix:@"tokens.txt"] && sz > 50LL * 1024LL * 1024LL) {
+      MDLog(@"Existing tokens file %@ is implausibly large (%lld bytes); will re-download",
+            path, sz);
+      [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
       allExist = NO;
       break;
     }
   }
   if (allExist) {
     MDLog(@"All files already exist, skipping download");
+    if (isRuntimeDownload) {
+      NSString *installError = nil;
+      BOOL installed = [self installSherpaRuntimeIfNeededFromDirectory:modelDir error:&installError];
+      dispatch_async(dispatch_get_main_queue(), ^{
+        [self sendEventWithName:@"onDownloadComplete"
+                           body:@{@"modelKey": modelKey ?: @"",
+                                  @"success": @(installed),
+                                  @"path": installed ? [self sherpaRuntimeCurrentDirectory] : modelDir,
+                                  @"error": installError ?: @""}];
+      });
+      resolve(@{@"path": installed ? [self sherpaRuntimeCurrentDirectory] : modelDir,
+                @"status": installed ? @"already_downloaded" : @"failed"});
+      return;
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
       [self sendEventWithName:@"onDownloadComplete"
                          body:@{@"modelKey": modelKey ?: @"",
@@ -111,6 +276,18 @@ RCT_EXPORT_METHOD(downloadModelFiles:(NSString *)modelKey
   if (self.currentFileIndex >= self.pendingFiles.count) {
     MDLog(@"All files downloaded successfully");
     NSString *modelDir = [self modelDirectoryForKey:self.currentModelKey];
+    if (MDIsSherpaRuntimeKey(self.currentModelKey)) {
+      NSString *installError = nil;
+      BOOL installed = [self installSherpaRuntimeIfNeededFromDirectory:modelDir error:&installError];
+      dispatch_async(dispatch_get_main_queue(), ^{
+        [self sendEventWithName:@"onDownloadComplete"
+                           body:@{@"modelKey": self.currentModelKey ?: @"",
+                                  @"success": @(installed),
+                                  @"path": installed ? [self sherpaRuntimeCurrentDirectory] : modelDir,
+                                  @"error": installError ?: @""}];
+      });
+      return;
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
       [self sendEventWithName:@"onDownloadComplete"
                          body:@{@"modelKey": self.currentModelKey ?: @"",
@@ -204,7 +381,10 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 didFinishDownloadingToURL:(NSURL *)location {
   NSHTTPURLResponse *response = (NSHTTPURLResponse *)downloadTask.response;
   NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? response.statusCode : 0;
-  MDLog(@"didFinishDownloading: %@ status=%ld → %@", self.currentFileName, (long)status, location.path);
+  long long expectedBytes = downloadTask.countOfBytesExpectedToReceive;
+  long long receivedBytes = downloadTask.countOfBytesReceived;
+  MDLog(@"didFinishDownloading: %@ status=%ld expected=%lld received=%lld → %@",
+        self.currentFileName, (long)status, expectedBytes, receivedBytes, location.path);
 
   if (status < 200 || status >= 300) {
     // Non-2xx: treat as failure, advance to next URL. Do NOT move the body.
@@ -214,8 +394,20 @@ didFinishDownloadingToURL:(NSURL *)location {
     return;
   }
 
+  // Validate that the body fully matches the advertised length. NSURLSession
+  // can otherwise hand us a truncated download and call this method as if it
+  // had succeeded, which leads to corrupt model files on disk.
+  if (expectedBytes > 0 && receivedBytes != expectedBytes) {
+    MDLog(@"Size mismatch for %@: received=%lld expected=%lld; will retry next URL",
+          self.currentFileName, receivedBytes, expectedBytes);
+    self.currentTaskFailed = YES;
+    [[NSFileManager defaultManager] removeItemAtURL:location error:nil];
+    return;
+  }
+
   NSString *modelDir = [self modelDirectoryForKey:self.currentModelKey];
-  NSString *destPath = [modelDir stringByAppendingPathComponent:self.currentFileName ?: @"file"];
+  NSString *fileName = self.currentFileName ?: @"file";
+  NSString *destPath = [modelDir stringByAppendingPathComponent:fileName];
   [[NSFileManager defaultManager] removeItemAtPath:destPath error:nil];
   NSError *moveError = nil;
   if (![[NSFileManager defaultManager] moveItemAtPath:location.path toPath:destPath error:&moveError]) {
@@ -223,11 +415,37 @@ didFinishDownloadingToURL:(NSURL *)location {
     self.currentTaskFailed = YES;
     return;
   }
-  MDLog(@"Saved %@ to %@", self.currentFileName, destPath);
+
+  // Lightweight content sanity check: tokens.txt must be plain text and small.
+  // If the upstream mirror swaps content (e.g. returns model bytes for a
+  // tokens.txt URL), reject the file rather than persist a corrupt model.
+  if ([fileName.lowercaseString hasSuffix:@"tokens.txt"]) {
+    NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:destPath error:nil];
+    long long sz = [attrs[NSFileSize] longLongValue];
+    BOOL textOk = sz > 0 && sz <= 50LL * 1024LL * 1024LL;
+    if (textOk) {
+      NSFileHandle *fh = [NSFileHandle fileHandleForReadingAtPath:destPath];
+      NSData *head = [fh readDataOfLength:256];
+      [fh closeFile];
+      const uint8_t *b = (const uint8_t *)head.bytes;
+      for (NSUInteger i = 0; i < head.length; i++) {
+        uint8_t c = b[i];
+        if (c == 0 || c < 0x09 || (c > 0x0D && c < 0x20)) { textOk = NO; break; }
+      }
+    }
+    if (!textOk) {
+      MDLog(@"Downloaded tokens file looks corrupt at %@ (size=%lld); discarding and retrying",
+            destPath, sz);
+      [[NSFileManager defaultManager] removeItemAtPath:destPath error:nil];
+      self.currentTaskFailed = YES;
+      return;
+    }
+  }
+
+  MDLog(@"Saved %@ to %@", fileName, destPath);
 
   // Emit final 100% progress for this file
   NSString *modelKey = self.currentModelKey ?: @"";
-  NSString *fileName = self.currentFileName ?: @"";
   dispatch_async(dispatch_get_main_queue(), ^{
     [self sendEventWithName:@"onDownloadProgress"
                        body:@{@"modelKey": modelKey,

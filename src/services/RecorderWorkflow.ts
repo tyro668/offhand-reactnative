@@ -35,6 +35,17 @@ type SpeechTranscriberModule = {
   transcribeFile: (filePath: string, language: string) => Promise<string>;
 };
 
+type SherpaTranscriberModule = {
+  transcribeFile: (
+    filePath: string,
+    engine: string,
+    modelKey: string,
+    language: string,
+  ) => Promise<string>;
+  isRuntimeReady: () => Promise<boolean>;
+  isModelReady: (engine: string, modelKey: string) => Promise<boolean>;
+};
+
 type TextInserterModule = {
   insertText: (text: string) => Promise<boolean> | void;
 };
@@ -48,6 +59,9 @@ const OverlayManager = nativeOverlayManager as
 const AudioRecorder = nativeAudioRecorder as AudioRecorderModule | undefined;
 const SpeechTranscriber = NativeModules.SpeechTranscriber as
   | SpeechTranscriberModule
+  | undefined;
+const SherpaTranscriber = NativeModules.SherpaTranscriber as
+  | SherpaTranscriberModule
   | undefined;
 const TextInserter = NativeModules.TextInserter as TextInserterModule | undefined;
 
@@ -298,10 +312,6 @@ async function transcribeAudio(
   filePath: string,
   appendLog: (message: string) => void,
 ): Promise<string> {
-  if (!SpeechTranscriber) {
-    throw new Error('SpeechTranscriber native module is unavailable.');
-  }
-
   const asr = await loadASRConfig({
     engine: 'apple-speech',
     model: 'apple-speech',
@@ -309,10 +319,39 @@ async function transcribeAudio(
     sample_rate: '16k',
   });
 
+  const language = asr.language || 'auto';
   appendLog(
-    `transcribing audio via native speech model engine=${asr.engine} model=${asr.model} language=${asr.language}`,
+    `transcribing audio via native speech model engine=${asr.engine} model=${asr.model} language=${language}`,
   );
-  return SpeechTranscriber.transcribeFile(filePath, asr.language || 'auto');
+
+  if (asr.engine === 'sensevoice' || asr.engine === 'whisper') {
+    if (!SherpaTranscriber) {
+      throw new Error('SherpaTranscriber native module is unavailable.');
+    }
+    const runtimeReady = await SherpaTranscriber.isRuntimeReady();
+    if (!runtimeReady) {
+      throw new Error(
+        'Sherpa runtime is not downloaded. Please download the selected ASR model in settings first.',
+      );
+    }
+    const ready = await SherpaTranscriber.isModelReady(asr.engine, asr.model);
+    if (!ready) {
+      throw new Error(
+        `Model "${asr.model}" for engine "${asr.engine}" is not downloaded. Please download it in ASR settings.`,
+      );
+    }
+    return SherpaTranscriber.transcribeFile(
+      filePath,
+      asr.engine,
+      asr.model,
+      language,
+    );
+  }
+
+  if (!SpeechTranscriber) {
+    throw new Error('SpeechTranscriber native module is unavailable.');
+  }
+  return SpeechTranscriber.transcribeFile(filePath, language);
 }
 
 async function doEnhanceText(

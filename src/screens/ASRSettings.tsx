@@ -10,7 +10,13 @@ import {
 } from 'react-native';
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
-import {getModelFiles} from '../services/modelDownloader';
+import {
+  getModelFiles,
+  getSherpaRuntimeFiles,
+  getSherpaRuntimeDownloadKey,
+  isSherpaRuntimeDownloadKey,
+  modelKeyFromSherpaRuntimeDownloadKey,
+} from '../services/modelDownloader';
 
 interface ASRConfig {
   engine: string;
@@ -56,40 +62,13 @@ export default function ASRSettings({config, onSave, onBack}: Props) {
   const [language, setLanguage] = useState(config.language);
   const [sampleRate, setSampleRate] = useState(config.sampleRate);
   const [downloads, setDownloads] = useState<DownloadState>({});
+  const pendingModelAfterRuntime = useRef<Record<string, boolean>>({});
 
   const currentModels = engine === 'sensevoice' ? SENSEVOICE_MODELS : WHISPER_MODELS;
 
-  // Listen for real download progress
-  useEffect(() => {
-    const {ModelDownloader} = NativeModules;
-    if (!ModelDownloader) return;
-    const emitter = new NativeEventEmitter(ModelDownloader);
-
-    const sub1 = emitter.addListener('onDownloadProgress', (event: {modelKey: string; progress: number; fileName?: string}) => {
-      console.log('[ASR] Download progress:', event.modelKey, event.fileName, Math.floor(event.progress * 100) + '%');
-      setDownloads(prev => ({
-        ...prev,
-        [event.modelKey]: {progress: Math.floor(event.progress * 100), status: 'downloading'},
-      }));
-    });
-
-    const sub2 = emitter.addListener('onDownloadComplete', (event: {modelKey: string; success: boolean; error?: string}) => {
-      console.log('[ASR] Download complete:', event.modelKey, 'success:', event.success, event.error || '');
-      setDownloads(prev => ({
-        ...prev,
-        [event.modelKey]: {progress: event.success ? 100 : 0, status: event.success ? 'done' : 'failed'},
-      }));
-    });
-
-    return () => {
-      sub1.remove();
-      sub2.remove();
-    };
-  }, []);
-
-  const startDownload = useCallback((modelKey: string) => {
+  const startModelFileDownload = useCallback((modelKey: string) => {
     const files = getModelFiles(modelKey);
-    console.log('[ASR] startDownload:', modelKey, 'files:', files.length);
+    console.log('[ASR] startModelFileDownload:', modelKey, 'files:', files.length);
     if (files.length === 0) {
       console.log('[ASR] No files defined for model:', modelKey);
       return;
@@ -107,6 +86,76 @@ export default function ASRSettings({config, onSave, onBack}: Props) {
       console.log('[ASR] downloadModelFiles called');
     }
   }, []);
+
+  // Listen for real download progress
+  useEffect(() => {
+    const {ModelDownloader} = NativeModules;
+    if (!ModelDownloader) return;
+    const emitter = new NativeEventEmitter(ModelDownloader);
+
+    const sub1 = emitter.addListener('onDownloadProgress', (event: {modelKey: string; progress: number; fileName?: string}) => {
+      const displayModelKey = modelKeyFromSherpaRuntimeDownloadKey(event.modelKey);
+      console.log('[ASR] Download progress:', event.modelKey, event.fileName, Math.floor(event.progress * 100) + '%');
+      setDownloads(prev => ({
+        ...prev,
+        [displayModelKey]: {progress: Math.floor(event.progress * 100), status: 'downloading'},
+      }));
+    });
+
+    const sub2 = emitter.addListener('onDownloadComplete', (event: {modelKey: string; success: boolean; error?: string}) => {
+      const isRuntime = isSherpaRuntimeDownloadKey(event.modelKey);
+      const displayModelKey = modelKeyFromSherpaRuntimeDownloadKey(event.modelKey);
+      console.log('[ASR] Download complete:', event.modelKey, 'success:', event.success, event.error || '');
+      if (isRuntime && pendingModelAfterRuntime.current[displayModelKey] && event.success) {
+        delete pendingModelAfterRuntime.current[displayModelKey];
+        startModelFileDownload(displayModelKey);
+        return;
+      }
+      setDownloads(prev => ({
+        ...prev,
+        [displayModelKey]: {progress: event.success ? 100 : 0, status: event.success ? 'done' : 'failed'},
+      }));
+    });
+
+    return () => {
+      sub1.remove();
+      sub2.remove();
+    };
+  }, [startModelFileDownload]);
+
+  const startDownload = useCallback(async (modelKey: string) => {
+    const {ModelDownloader, SherpaTranscriber} = NativeModules;
+    const runtimeFiles = getSherpaRuntimeFiles();
+    let runtimeReady = false;
+    try {
+      runtimeReady = runtimeFiles.length === 0 || !!(await SherpaTranscriber?.isRuntimeReady?.());
+    } catch (e) {
+      console.log('[ASR] isRuntimeReady failed:', e);
+    }
+
+    if (runtimeReady) {
+      startModelFileDownload(modelKey);
+      return;
+    }
+
+    if (!ModelDownloader || runtimeFiles.length === 0) {
+      console.log('[ASR] No Sherpa runtime downloader/files available for model:', modelKey);
+      setDownloads(prev => ({
+        ...prev,
+        [modelKey]: {progress: 0, status: 'failed'},
+      }));
+      return;
+    }
+
+    pendingModelAfterRuntime.current[modelKey] = true;
+    setDownloads(prev => ({
+      ...prev,
+      [modelKey]: {progress: 0, status: 'downloading'},
+    }));
+    const runtimeKey = getSherpaRuntimeDownloadKey(modelKey);
+    console.log('[ASR] startRuntimeDownload:', runtimeKey, 'files:', runtimeFiles.length);
+    ModelDownloader.downloadModelFiles(runtimeKey, runtimeFiles);
+  }, [startModelFileDownload]);
 
   const getDownloadBtn = (modelKey: string) => {
     const ds = downloads[modelKey];

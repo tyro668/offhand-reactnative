@@ -56,6 +56,10 @@ yarn-error.log
 # Bundle artifact
 *.jsbundle
 
+# Sherpa-onnx headers are kept for compilation; runtime binaries are downloaded
+# on demand into the app data directory.
+macos/Vendor/sherpa-onnx/lib/
+
 # Ruby / CocoaPods
 **/Pods/
 /vendor/bundle/

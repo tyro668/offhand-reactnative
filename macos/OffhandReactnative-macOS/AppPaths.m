@@ -1,6 +1,6 @@
 #import "AppPaths.h"
 
-static NSString * const AppPathsAppDirectoryName = @"offhand-native";
+static NSString * const AppPathsAppDirectoryName = @"Offhand-native";
 static NSString * const AppPathsLocalizedLegacyAppDirectoryName = @"释手语音输入法";
 static NSString * const AppPathsLogsDirectoryName = @"Logs";
 static NSString * const AppPathsRecordingsDirectoryName = @"Recordings";

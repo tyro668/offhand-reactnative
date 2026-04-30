@@ -1,4 +1,4 @@
-import {NativeEventEmitter, NativeModules} from 'react-native';
+import {NativeEventEmitter, NativeModules, Platform} from 'react-native';
 
 const {ModelDownloader} = NativeModules;
 const emitter = ModelDownloader ? new NativeEventEmitter(ModelDownloader) : null;
@@ -8,6 +8,9 @@ const emitter = ModelDownloader ? new NativeEventEmitter(ModelDownloader) : null
 interface ModelFiles {
   files: Array<{name: string; urls: string[]}>;
 }
+
+const SHERPA_RUNTIME_VERSION = 'v1.12.39';
+const SHERPA_RUNTIME_DOWNLOAD_SUFFIX = '__sherpaRuntime';
 
 // SenseVoice: the upstream HuggingFace repo only ships two variants of the
 // same multilingual model — model.int8.onnx (~239MB, quantized) and
@@ -74,6 +77,51 @@ export function getModelFiles(modelKey: string): Array<{name: string; urls: stri
   return MODEL_DEFS[modelKey]?.files ?? [];
 }
 
+function githubRelease(file: string): string {
+  return `https://github.com/k2-fsa/sherpa-onnx/releases/download/${SHERPA_RUNTIME_VERSION}/${file}`;
+}
+
+function sourceForgeRelease(file: string): string {
+  return `https://sourceforge.net/projects/sherpa-onnx.mirror/files/${SHERPA_RUNTIME_VERSION}/${file}/download`;
+}
+
+export function getSherpaRuntimeDownloadKey(modelKey: string): string {
+  return `${modelKey}${SHERPA_RUNTIME_DOWNLOAD_SUFFIX}`;
+}
+
+export function isSherpaRuntimeDownloadKey(modelKey: string): boolean {
+  return modelKey.endsWith(SHERPA_RUNTIME_DOWNLOAD_SUFFIX);
+}
+
+export function modelKeyFromSherpaRuntimeDownloadKey(modelKey: string): string {
+  return isSherpaRuntimeDownloadKey(modelKey)
+    ? modelKey.slice(0, -SHERPA_RUNTIME_DOWNLOAD_SUFFIX.length)
+    : modelKey;
+}
+
+export function getSherpaRuntimeFiles(): Array<{name: string; urls: string[]}> {
+  let file: string | null = null;
+  if (Platform.OS === 'macos') {
+    file = `sherpa-onnx-${SHERPA_RUNTIME_VERSION}-osx-universal2-shared-lib.tar.bz2`;
+  } else if (Platform.OS === 'windows') {
+    file = `sherpa-onnx-${SHERPA_RUNTIME_VERSION}-win-x64-shared-MD-MinSizeRel-no-tts-lib.tar.bz2`;
+  }
+  return file ? [{name: file, urls: [githubRelease(file), sourceForgeRelease(file)]}] : [];
+}
+
+export async function startSherpaRuntimeDownload(modelKey: string): Promise<string> {
+  const files = getSherpaRuntimeFiles();
+  if (files.length === 0) {
+    throw new Error(`No Sherpa runtime defined for platform: ${Platform.OS}`);
+  }
+  if (!ModelDownloader) throw new Error('ModelDownloader native module not available');
+  const result = await ModelDownloader.downloadModelFiles(
+    getSherpaRuntimeDownloadKey(modelKey),
+    files,
+  );
+  return result;
+}
+
 export async function startModelDownload(modelKey: string): Promise<string> {
   const files = getModelFiles(modelKey);
   if (files.length === 0) throw new Error(`No files defined for model: ${modelKey}`);
@@ -92,7 +140,9 @@ export function useModelDownload() {
   return {
     emitter,
     startDownload: startModelDownload,
+    startRuntimeDownload: startSherpaRuntimeDownload,
     cancelDownload: cancelModelDownload,
     getModelFiles,
+    getSherpaRuntimeFiles,
   };
 }

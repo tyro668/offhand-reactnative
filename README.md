@@ -24,9 +24,16 @@ cd macos && pod install && cd ..
 # 启动 Metro 开发服务器
 npm start
 
-# 启动 macOS 应用
+# 启动 macOS 应用（会自动检测或启动 Metro）
 npm run macos
 ```
+
+### Sherpa-onnx 按需下载
+
+SenseVoice / Whisper 模型文件和 Sherpa-onnx runtime 都由应用设置页按需下载到用户数据目录，安装包不内置 Sherpa dylib/dll 或 ONNX 模型。首次点击下载 ASR 模型时，应用会先下载当前平台的 Sherpa-onnx shared runtime，再下载模型文件。
+
+macOS runtime 安装到：
+`~/Library/Application Support/Offhand-native/sherpa-onnx/runtime/current`
 
 ## 辅助功能权限
 

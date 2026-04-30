@@ -116,7 +116,24 @@
 - (NSURL *)bundleURL
 {
 #if DEBUG
-  return [[RCTBundleURLProvider sharedSettings] jsBundleURLForBundleRoot:@"index"];
+  NSURL *bundleURL = [[RCTBundleURLProvider sharedSettings] jsBundleURLForBundleRoot:@"index"];
+  if (bundleURL) {
+    return bundleURL;
+  }
+
+  NSString *host = [[NSUserDefaults standardUserDefaults] stringForKey:@"RCT_jsLocation"];
+  if (host.length == 0) {
+    NSString *port = NSProcessInfo.processInfo.environment[@"RCT_METRO_PORT"];
+    if (port.length == 0) {
+      port = @"8081";
+    }
+    host = [NSString stringWithFormat:@"localhost:%@", port];
+  }
+  return [RCTBundleURLProvider jsBundleURLForBundleRoot:@"index"
+                                           packagerHost:host
+                                              enableDev:YES
+                                     enableMinification:NO
+                                        inlineSourceMap:NO];
 #else
   return [[NSBundle mainBundle] URLForResource:@"main" withExtension:@"jsbundle"];
 #endif
