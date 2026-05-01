@@ -325,6 +325,35 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  # React Native 0.85 changed ImageResponseObserverCoordinator::addObserver /
+  # removeObserver to take std::shared_ptr<const ImageResponseObserver> instead
+  # of a const ImageResponseObserver&. RNW 0.82 still calls them with a
+  # dereferenced shared_ptr<WindowsImageResponseObserver>. Forward the
+  # shared_ptr (cast to the base type) instead.
+  $ImageComponentViewSource = Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\Composition\ImageComponentView.cpp"
+  if (Test-Path $ImageComponentViewSource) {
+    $ImageComponentViewText = Get-Content $ImageComponentViewSource -Raw
+    if ($ImageComponentViewText.Contains("std::static_pointer_cast<const facebook::react::ImageResponseObserver>(m_imageResponseObserver)")) {
+      Write-Host "ImageComponentView observer compatibility patch is already applied: $ImageComponentViewSource"
+    } else {
+      $UpdatedImageComponentViewText = $ImageComponentViewText.Replace(
+        "observerCoordinator.removeObserver(*m_imageResponseObserver);",
+        "observerCoordinator.removeObserver(std::static_pointer_cast<const facebook::react::ImageResponseObserver>(m_imageResponseObserver));"
+      ).Replace(
+        "observerCoordinator.addObserver(*m_imageResponseObserver);",
+        "observerCoordinator.addObserver(std::static_pointer_cast<const facebook::react::ImageResponseObserver>(m_imageResponseObserver));"
+      )
+
+      if ($UpdatedImageComponentViewText -ne $ImageComponentViewText) {
+        Set-Content -Path $ImageComponentViewSource -Value $UpdatedImageComponentViewText -NoNewline
+        Write-Host "Applied ImageComponentView observer compatibility patch: $ImageComponentViewSource"
+        $PatchedAny = $true
+      } else {
+        Write-Host "ImageComponentView observer compatibility patch was not needed: $ImageComponentViewSource"
+      }
+    }
+  }
+
   if (!$PatchedAny) {
     Write-Host "No Windows React Native source files required patching."
   }
