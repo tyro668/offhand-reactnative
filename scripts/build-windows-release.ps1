@@ -360,33 +360,16 @@ function Repair-ReactNativeWindowsSources {
   # fails to recognise `MeasuredPreparedTextLayout`. Strip the new member and
   # constructor so the file compiles back to its 0.82-compatible shape.
   $ParagraphStateAndroidHeader = Join-Path $RootDir "node_modules\react-native\ReactCommon\react\renderer\components\text\platform\android\react\renderer\components\text\ParagraphState.h"
-  if (Test-Path $ParagraphStateAndroidHeader) {
-    $ParagraphStateText = Get-Content $ParagraphStateAndroidHeader -Raw
-    if ($ParagraphStateText -match "measuredLayout") {
-      $Updated = $ParagraphStateText
-      # Remove the `MeasuredPreparedTextLayout measuredLayout;` member (and the doc comment immediately preceding it).
-      $Updated = [regex]::Replace($Updated, '(?s)\s*/\*\*[^/]*?\*/\s*[A-Za-z_][A-Za-z0-9_]*\s+measuredLayout;', '')
-      # If the comment-prefixed form did not match (variant), drop just the bare member declaration.
-      $Updated = [regex]::Replace($Updated, '(?m)^\s*[A-Za-z_][A-Za-z0-9_]*\s+measuredLayout;\s*\r?\n', '')
-      # Remove the 4-argument constructor (the one that takes `measuredLayout` as its last parameter).
-      $Updated = [regex]::Replace($Updated, '(?s)\s*ParagraphState\([^)]*measuredLayout\)\s*:[^{]*\{\s*\}', '')
-      # Replace the delegating 3-arg constructor with a direct member-init form.
-      $Updated = [regex]::Replace(
-        $Updated,
-        '(?s)ParagraphState\(\s*AttributedString attributedString,\s*ParagraphAttributes paragraphAttributes,\s*std::weak_ptr<const TextLayoutManager> layoutManager\)\s*:\s*ParagraphState\([^{}]*\{\}\)\s*\{\s*\}',
-        "ParagraphState(`n      AttributedString attributedString,`n      ParagraphAttributes paragraphAttributes,`n      std::weak_ptr<const TextLayoutManager> layoutManager)`n      : attributedString(std::move(attributedString)),`n        paragraphAttributes(std::move(paragraphAttributes)),`n        layoutManager(std::move(layoutManager))`n  {`n  }"
-      )
-      # Drop the optional include of TextLayoutManagerExtended.h whose type we just removed.
-      $Updated = [regex]::Replace($Updated, '(?m)^\s*#include\s+<react/renderer/textlayoutmanager/TextLayoutManagerExtended\.h>\s*\r?\n', '')
-      if ($Updated -ne $ParagraphStateText) {
-        Set-Content -Path $ParagraphStateAndroidHeader -Value $Updated -NoNewline
-        Write-Host "Applied ParagraphState measuredLayout compatibility patch: $ParagraphStateAndroidHeader"
-        $PatchedAny = $true
-      } else {
-        Write-Host "ParagraphState measuredLayout compatibility patch did not modify file: $ParagraphStateAndroidHeader"
-      }
+  $ParagraphStateFixture = Join-Path $PSScriptRoot "patches\ParagraphState.android.h"
+  if ((Test-Path $ParagraphStateAndroidHeader) -and (Test-Path $ParagraphStateFixture)) {
+    $ExistingText = Get-Content $ParagraphStateAndroidHeader -Raw
+    $FixtureText = Get-Content $ParagraphStateFixture -Raw
+    if ($ExistingText -ne $FixtureText) {
+      Copy-Item -Path $ParagraphStateFixture -Destination $ParagraphStateAndroidHeader -Force
+      Write-Host "Replaced ParagraphState.h with 0.82-compatible fixture: $ParagraphStateAndroidHeader"
+      $PatchedAny = $true
     } else {
-      Write-Host "ParagraphState measuredLayout compatibility patch already applied: $ParagraphStateAndroidHeader"
+      Write-Host "ParagraphState.h already matches fixture: $ParagraphStateAndroidHeader"
     }
   }
 
