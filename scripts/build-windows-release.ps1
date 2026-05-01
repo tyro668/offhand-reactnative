@@ -40,27 +40,46 @@ function Get-MSBuildPath {
 }
 
 function Repair-ReactNativeWindowsSources {
-  $BundleSource = Join-Path $RootDir "node_modules\react-native\ReactCommon\cxxreact\JSIndexedRAMBundle.cpp"
-  if (!(Test-Path $BundleSource)) {
-    throw "React Native source file was not found at $BundleSource"
+  $CandidateSources = @(
+    (Join-Path $RootDir "node_modules\react-native\ReactCommon\cxxreact\JSIndexedRAMBundle.cpp"),
+    (Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\cxxreact\JSIndexedRAMBundle.cpp")
+  )
+  $PatchedAny = $false
+
+  foreach ($BundleSource in $CandidateSources) {
+    if (!(Test-Path $BundleSource)) {
+      continue
+    }
+
+    $Text = Get-Content $BundleSource -Raw
+    if ($Text.Contains("readBundle(m_startupCode->mutableData(), startupCodeSize - 1);")) {
+      Write-Host "RAM bundle startup-code patch is already applied: $BundleSource"
+      continue
+    }
+
+    $UpdatedText = $Text.Replace(
+      "readBundle(m_startupCode->data(), startupCodeSize - 1);",
+      "readBundle(m_startupCode->mutableData(), startupCodeSize - 1);"
+    )
+
+    $UpdatedText = $UpdatedText.Replace(
+      "readBundle(bundle.data(), bundle.size());",
+      "readBundle(reinterpret_cast<char *>(const_cast<uint8_t *>(bundle.data())), static_cast<std::streamsize>(bundle.size()));"
+    )
+
+    if ($UpdatedText -ne $Text) {
+      Set-Content -Path $BundleSource -Value $UpdatedText -NoNewline
+      Write-Host "Applied React Native Windows RAM bundle compatibility patch: $BundleSource"
+      $PatchedAny = $true
+      continue
+    }
+
+    Write-Host "React Native Windows RAM bundle compatibility patch was not needed: $BundleSource"
   }
 
-  $Text = Get-Content $BundleSource -Raw
-  if ($Text -match "reinterpret_cast<char \*>\(const_cast<uint8_t \*>\(bundle\.data\(\)\)\)") {
-    Write-Host "React Native Windows RAM bundle compatibility patch is already applied."
-    return
+  if (!$PatchedAny) {
+    Write-Host "No Windows RAM bundle source files required patching."
   }
-
-  $Original = "readBundle(bundle.data(), bundle.size());"
-  $Replacement = "readBundle(reinterpret_cast<char *>(const_cast<uint8_t *>(bundle.data())), static_cast<std::streamsize>(bundle.size()));"
-  if ($Text.Contains($Original)) {
-    $Text = $Text.Replace($Original, $Replacement)
-    Set-Content -Path $BundleSource -Value $Text -NoNewline
-    Write-Host "Applied React Native Windows RAM bundle compatibility patch."
-    return
-  }
-
-  Write-Host "React Native Windows RAM bundle compatibility patch was not needed."
 }
 
 Write-Step "Patch React Native Windows sources"
