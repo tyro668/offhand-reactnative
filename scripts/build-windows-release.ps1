@@ -209,6 +209,7 @@ $ReactNativeWindowsDir = Join-Path $RootDir "node_modules\react-native-windows"
   "/p:AppxBundle=Never" `
   "/p:UapAppxPackageBuildMode=SideloadOnly" `
   "/p:AppxPackageSigningEnabled=false" `
+  "/p:WindowsAppSDKVerifyTransitiveDependencies=false" `
   "/p:RnwNewArch=true" `
   "/p:UseWinUI3=true" `
   "/p:GenerateAppxPackageOnBuild=true"
