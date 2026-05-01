@@ -98,8 +98,25 @@ function Repair-ReactNativeWindowsSources {
     Write-Host "React Native Windows RAM bundle compatibility patch was not needed: $BundleSource"
   }
 
+  $MapBufferSource = Join-Path $RootDir "node_modules\react-native\ReactCommon\react\renderer\mapbuffer\MapBuffer.cpp"
+  if (Test-Path $MapBufferSource) {
+    $MapBufferText = Get-Content $MapBufferSource -Raw
+    $UpdatedMapBufferText = $MapBufferText.Replace(
+      "    mapBufferLength = maxLength;",
+      "    mapBufferLength = static_cast<int32_t>(maxLength);"
+    )
+
+    if ($UpdatedMapBufferText -ne $MapBufferText) {
+      Set-Content -Path $MapBufferSource -Value $UpdatedMapBufferText -NoNewline
+      Write-Host "Applied React Native Windows MapBuffer compatibility patch: $MapBufferSource"
+      $PatchedAny = $true
+    } else {
+      Write-Host "React Native Windows MapBuffer compatibility patch was not needed: $MapBufferSource"
+    }
+  }
+
   if (!$PatchedAny) {
-    Write-Host "No Windows RAM bundle source files required patching."
+    Write-Host "No Windows React Native source files required patching."
   }
 }
 
