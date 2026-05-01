@@ -354,7 +354,7 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
-  # React Native 0.85 added a `MeasuredPreparedTextLayout measuredLayout` member
+  # React Native 0.85 added a MeasuredPreparedTextLayout measuredLayout member
   # and a 4-arg constructor to the Android variant of ParagraphState. RNW 0.82
   # picks up that header through its include path but the Windows toolchain
   # fails to recognise `MeasuredPreparedTextLayout`. Strip the new member and
@@ -362,60 +362,31 @@ function Repair-ReactNativeWindowsSources {
   $ParagraphStateAndroidHeader = Join-Path $RootDir "node_modules\react-native\ReactCommon\react\renderer\components\text\platform\android\react\renderer\components\text\ParagraphState.h"
   if (Test-Path $ParagraphStateAndroidHeader) {
     $ParagraphStateText = Get-Content $ParagraphStateAndroidHeader -Raw
-    if ($ParagraphStateText.Contains("MeasuredPreparedTextLayout measuredLayout;")) {
-      $ParagraphStateNeedle = @(
-        "  /**",
-        "   * A fully prepared representation of a text layout to mount",
-        "   */",
-        "  MeasuredPreparedTextLayout measuredLayout;",
-        "",
-        "  ParagraphState(",
-        "      AttributedString attributedString,",
-        "      ParagraphAttributes paragraphAttributes,",
-        "      std::weak_ptr<const TextLayoutManager> layoutManager,",
-        "      MeasuredPreparedTextLayout measuredLayout)",
-        "      : attributedString(std::move(attributedString)),",
-        "        paragraphAttributes(std::move(paragraphAttributes)),",
-        "        layoutManager(std::move(layoutManager)),",
-        "        measuredLayout(std::move(measuredLayout))",
-        "  {",
-        "  }",
-        "",
-        "  ParagraphState(",
-        "      AttributedString attributedString,",
-        "      ParagraphAttributes paragraphAttributes,",
-        "      std::weak_ptr<const TextLayoutManager> layoutManager)",
-        "      : ParagraphState(std::move(attributedString), std::move(paragraphAttributes), std::move(layoutManager), {})",
-        "  {",
-        "  }"
-      ) -join [Environment]::NewLine
-      $ParagraphStateReplacement = @(
-        "  ParagraphState(",
-        "      AttributedString attributedString,",
-        "      ParagraphAttributes paragraphAttributes,",
-        "      std::weak_ptr<const TextLayoutManager> layoutManager)",
-        "      : attributedString(std::move(attributedString)),",
-        "        paragraphAttributes(std::move(paragraphAttributes)),",
-        "        layoutManager(std::move(layoutManager))",
-        "  {",
-        "  }"
-      ) -join [Environment]::NewLine
-      $UpdatedParagraphStateText = $ParagraphStateText.Replace($ParagraphStateNeedle, $ParagraphStateReplacement)
-      if ($UpdatedParagraphStateText -eq $ParagraphStateText) {
-        $UpdatedParagraphStateText = $ParagraphStateText.Replace(
-          ($ParagraphStateNeedle -replace "`r`n", "`n"),
-          ($ParagraphStateReplacement -replace "`r`n", "`n")
-        )
-      }
-      if ($UpdatedParagraphStateText -ne $ParagraphStateText) {
-        Set-Content -Path $ParagraphStateAndroidHeader -Value $UpdatedParagraphStateText -NoNewline
-        Write-Host "Applied ParagraphState MeasuredPreparedTextLayout compatibility patch: $ParagraphStateAndroidHeader"
+    if ($ParagraphStateText -match "measuredLayout") {
+      $Updated = $ParagraphStateText
+      # Remove the `MeasuredPreparedTextLayout measuredLayout;` member (and the doc comment immediately preceding it).
+      $Updated = [regex]::Replace($Updated, '(?s)\s*/\*\*[^/]*?\*/\s*[A-Za-z_][A-Za-z0-9_]*\s+measuredLayout;', '')
+      # If the comment-prefixed form did not match (variant), drop just the bare member declaration.
+      $Updated = [regex]::Replace($Updated, '(?m)^\s*[A-Za-z_][A-Za-z0-9_]*\s+measuredLayout;\s*\r?\n', '')
+      # Remove the 4-argument constructor (the one that takes `measuredLayout` as its last parameter).
+      $Updated = [regex]::Replace($Updated, '(?s)\s*ParagraphState\([^)]*measuredLayout\)\s*:[^{]*\{\s*\}', '')
+      # Replace the delegating 3-arg constructor with a direct member-init form.
+      $Updated = [regex]::Replace(
+        $Updated,
+        '(?s)ParagraphState\(\s*AttributedString attributedString,\s*ParagraphAttributes paragraphAttributes,\s*std::weak_ptr<const TextLayoutManager> layoutManager\)\s*:\s*ParagraphState\([^{}]*\{\}\)\s*\{\s*\}',
+        "ParagraphState(`n      AttributedString attributedString,`n      ParagraphAttributes paragraphAttributes,`n      std::weak_ptr<const TextLayoutManager> layoutManager)`n      : attributedString(std::move(attributedString)),`n        paragraphAttributes(std::move(paragraphAttributes)),`n        layoutManager(std::move(layoutManager))`n  {`n  }"
+      )
+      # Drop the optional include of TextLayoutManagerExtended.h whose type we just removed.
+      $Updated = [regex]::Replace($Updated, '(?m)^\s*#include\s+<react/renderer/textlayoutmanager/TextLayoutManagerExtended\.h>\s*\r?\n', '')
+      if ($Updated -ne $ParagraphStateText) {
+        Set-Content -Path $ParagraphStateAndroidHeader -Value $Updated -NoNewline
+        Write-Host "Applied ParagraphState measuredLayout compatibility patch: $ParagraphStateAndroidHeader"
         $PatchedAny = $true
       } else {
-        Write-Host "ParagraphState MeasuredPreparedTextLayout compatibility patch was not needed: $ParagraphStateAndroidHeader"
+        Write-Host "ParagraphState measuredLayout compatibility patch did not modify file: $ParagraphStateAndroidHeader"
       }
     } else {
-      Write-Host "ParagraphState MeasuredPreparedTextLayout compatibility patch is already applied: $ParagraphStateAndroidHeader"
+      Write-Host "ParagraphState measuredLayout compatibility patch already applied: $ParagraphStateAndroidHeader"
     }
   }
 
