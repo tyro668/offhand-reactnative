@@ -197,6 +197,8 @@ $MSBuild = Get-MSBuildPath
   "/p:AppxBundle=Never" `
   "/p:UapAppxPackageBuildMode=SideloadOnly" `
   "/p:AppxPackageSigningEnabled=false" `
+  "/p:RnwNewArch=true" `
+  "/p:UseWinUI3=true" `
   "/p:GenerateAppxPackageOnBuild=true"
 
 if ($LASTEXITCODE -ne 0) {
