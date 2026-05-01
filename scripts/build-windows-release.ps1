@@ -276,7 +276,7 @@ function Repair-ReactNativeWindowsSources {
   $CompositionEventHandlerSource = Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\Composition\CompositionEventHandler.cpp"
   if (Test-Path $CompositionEventHandlerSource) {
     $CompositionEventHandlerText = Get-Content $CompositionEventHandlerSource -Raw
-    if ($CompositionEventHandlerText.Contains("std::const_pointer_cast<facebook::react::EventEmitter>(emitter)")) {
+    if ($CompositionEventHandlerText.Contains("std::static_pointer_cast<const facebook::react::EventEmitter>(emitter)")) {
       Write-Host "CompositionEventHandler EventEmitter constness patch is already applied: $CompositionEventHandlerSource"
     } else {
       $CompositionEventHandlerNeedle = @(
@@ -294,13 +294,15 @@ function Repair-ReactNativeWindowsSources {
       $CompositionEventHandlerReplacement = @(
         "  auto emitter = viewComponent->GetEventEmitter();",
         "  if (emitter)",
-        "    return std::const_pointer_cast<facebook::react::EventEmitter>(emitter);",
+        "    return std::const_pointer_cast<facebook::react::EventEmitter>(",
+        "        std::static_pointer_cast<const facebook::react::EventEmitter>(emitter));",
         "",
         "  for (auto it = view.Parent(); it; it = it.Parent()) {",
         "    auto emitter =",
         "        it.as<winrt::Microsoft::ReactNative::Composition::implementation::ComponentView>()->GetEventEmitter();",
         "    if (emitter)",
-        "      return std::const_pointer_cast<facebook::react::EventEmitter>(emitter);",
+        "      return std::const_pointer_cast<facebook::react::EventEmitter>(",
+        "          std::static_pointer_cast<const facebook::react::EventEmitter>(emitter));",
         "  }"
       ) -join [Environment]::NewLine
       $UpdatedCompositionEventHandlerText = $CompositionEventHandlerText.Replace(
