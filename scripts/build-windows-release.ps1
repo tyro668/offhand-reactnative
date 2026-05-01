@@ -40,6 +40,27 @@ function Get-MSBuildPath {
 }
 
 function Repair-ReactNativeWindowsSources {
+  $MacOSNetworkDir = Join-Path $RootDir "node_modules\react-native-macos\ReactCommon\jsinspector-modern\network"
+  $ReactNativeNetworkDir = Join-Path $RootDir "node_modules\react-native\ReactCommon\jsinspector-modern\network"
+  $NetworkCompatibilityFiles = @(
+    "NetworkReporter.cpp",
+    "NetworkReporter.h",
+    "NetworkTypes.h"
+  )
+
+  if ((Test-Path $MacOSNetworkDir) -and (Test-Path $ReactNativeNetworkDir)) {
+    foreach ($FileName in $NetworkCompatibilityFiles) {
+      $SourcePath = Join-Path $MacOSNetworkDir $FileName
+      $DestinationPath = Join-Path $ReactNativeNetworkDir $FileName
+      if (!(Test-Path $SourcePath)) {
+        continue
+      }
+
+      Copy-Item $SourcePath $DestinationPath -Force
+      Write-Host "Synced jsinspector network compatibility file: $DestinationPath"
+    }
+  }
+
   $CandidateSources = @(
     (Join-Path $RootDir "node_modules\react-native\ReactCommon\cxxreact\JSIndexedRAMBundle.cpp"),
     (Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\cxxreact\JSIndexedRAMBundle.cpp")
