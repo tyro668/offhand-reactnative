@@ -269,6 +269,60 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  # React Native 0.85 made SharedViewEventEmitter const-qualified
+  # (std::shared_ptr<const ViewEventEmitter>) while SharedEventEmitter remains
+  # non-const (std::shared_ptr<EventEmitter>). RNW 0.82 still expects the
+  # implicit conversion to work. Cast away const so the function compiles.
+  $CompositionEventHandlerSource = Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\Composition\CompositionEventHandler.cpp"
+  if (Test-Path $CompositionEventHandlerSource) {
+    $CompositionEventHandlerText = Get-Content $CompositionEventHandlerSource -Raw
+    if ($CompositionEventHandlerText.Contains("std::const_pointer_cast<facebook::react::EventEmitter>(emitter)")) {
+      Write-Host "CompositionEventHandler EventEmitter constness patch is already applied: $CompositionEventHandlerSource"
+    } else {
+      $CompositionEventHandlerNeedle = @(
+        "  auto emitter = viewComponent->GetEventEmitter();",
+        "  if (emitter)",
+        "    return emitter;",
+        "",
+        "  for (auto it = view.Parent(); it; it = it.Parent()) {",
+        "    auto emitter =",
+        "        it.as<winrt::Microsoft::ReactNative::Composition::implementation::ComponentView>()->GetEventEmitter();",
+        "    if (emitter)",
+        "      return emitter;",
+        "  }"
+      ) -join [Environment]::NewLine
+      $CompositionEventHandlerReplacement = @(
+        "  auto emitter = viewComponent->GetEventEmitter();",
+        "  if (emitter)",
+        "    return std::const_pointer_cast<facebook::react::EventEmitter>(emitter);",
+        "",
+        "  for (auto it = view.Parent(); it; it = it.Parent()) {",
+        "    auto emitter =",
+        "        it.as<winrt::Microsoft::ReactNative::Composition::implementation::ComponentView>()->GetEventEmitter();",
+        "    if (emitter)",
+        "      return std::const_pointer_cast<facebook::react::EventEmitter>(emitter);",
+        "  }"
+      ) -join [Environment]::NewLine
+      $UpdatedCompositionEventHandlerText = $CompositionEventHandlerText.Replace(
+        $CompositionEventHandlerNeedle,
+        $CompositionEventHandlerReplacement
+      )
+      if ($UpdatedCompositionEventHandlerText -eq $CompositionEventHandlerText) {
+        $UpdatedCompositionEventHandlerText = $CompositionEventHandlerText.Replace(
+          ($CompositionEventHandlerNeedle -replace "`r`n", "`n"),
+          ($CompositionEventHandlerReplacement -replace "`r`n", "`n")
+        )
+      }
+      if ($UpdatedCompositionEventHandlerText -ne $CompositionEventHandlerText) {
+        Set-Content -Path $CompositionEventHandlerSource -Value $UpdatedCompositionEventHandlerText -NoNewline
+        Write-Host "Applied CompositionEventHandler EventEmitter constness patch: $CompositionEventHandlerSource"
+        $PatchedAny = $true
+      } else {
+        Write-Host "CompositionEventHandler EventEmitter constness patch was not needed: $CompositionEventHandlerSource"
+      }
+    }
+  }
+
   if (!$PatchedAny) {
     Write-Host "No Windows React Native source files required patching."
   }
