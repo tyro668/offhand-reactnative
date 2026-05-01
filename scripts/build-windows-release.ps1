@@ -84,7 +84,7 @@ function Repair-ReactNativeWindowsSources {
       '$(ReactNativeDir)\ReactCommon\jsinspector-modern\network\NetworkHandler.cpp'
     ).Replace(
       '<DisableSpecificWarnings>4715;4251;4800;4804;4305;4722;%(DisableSpecificWarnings)</DisableSpecificWarnings>',
-      '<DisableSpecificWarnings>4715;4251;4800;4804;4305;4722;4244;4267;%(DisableSpecificWarnings)</DisableSpecificWarnings>'
+      '<DisableSpecificWarnings>4715;4251;4800;4804;4305;4722;4244;4267;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>'
     ).Replace(
       '    <ClInclude Include="$(ReactNativeDir)\ReactCommon\react\nativemodule\core\ReactCommon\TurboCxxModule.h" />' + [Environment]::NewLine,
       ''
