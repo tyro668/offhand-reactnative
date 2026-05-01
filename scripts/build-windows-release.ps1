@@ -391,6 +391,26 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  $AbiPortalShadowNodeSource = Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\AbiPortalShadowNode.cpp"
+  if (Test-Path $AbiPortalShadowNodeSource) {
+    $AbiPortalShadowNodeText = Get-Content $AbiPortalShadowNodeSource -Raw
+    $UpdatedAbiPortalShadowNodeText = $AbiPortalShadowNodeText.Replace(
+      "auto portalOwningShadowNode = ShadowNode::Unshared{};",
+      "auto portalOwningShadowNode = std::shared_ptr<ShadowNode>{};"
+    ).Replace(
+      "auto clonedShadowNode = ShadowNode::Unshared{};",
+      "auto clonedShadowNode = std::shared_ptr<ShadowNode>{};"
+    )
+
+    if ($UpdatedAbiPortalShadowNodeText -ne $AbiPortalShadowNodeText) {
+      Set-Content -Path $AbiPortalShadowNodeSource -Value $UpdatedAbiPortalShadowNodeText -NoNewline
+      Write-Host "Applied AbiPortalShadowNode ShadowNode::Unshared compatibility patch: $AbiPortalShadowNodeSource"
+      $PatchedAny = $true
+    } else {
+      Write-Host "AbiPortalShadowNode ShadowNode::Unshared compatibility patch was not needed: $AbiPortalShadowNodeSource"
+    }
+  }
+
   if (!$PatchedAny) {
     Write-Host "No Windows React Native source files required patching."
   }
