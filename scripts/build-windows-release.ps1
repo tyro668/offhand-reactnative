@@ -73,6 +73,48 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  $TurboModuleCompatibilityHeaders = @(
+    (Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative.Cxx\ReactCommon\TurboModule.h"),
+    (Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\react\nativemodule\core\ReactCommon\TurboModule.h")
+  )
+
+  foreach ($TurboModuleCompatibilityHeader in $TurboModuleCompatibilityHeaders) {
+    if (!(Test-Path $TurboModuleCompatibilityHeader)) {
+      continue
+    }
+
+    $TurboModuleCompatibilityText = Get-Content $TurboModuleCompatibilityHeader -Raw
+    $UpdatedTurboModuleCompatibilityText = $TurboModuleCompatibilityText
+
+    if (!$UpdatedTurboModuleCompatibilityText.Contains("TurboModuleProviderFunctionTypeWithRuntime")) {
+      $TurboModuleProviderNeedle = @(
+        "using TurboModuleProviderFunctionType =",
+        "    std::function<std::shared_ptr<TurboModule>(const std::string& name)>;"
+      ) -join [Environment]::NewLine
+      $TurboModuleProviderReplacement = @(
+        "using TurboModuleProviderFunctionType =",
+        "    std::function<std::shared_ptr<TurboModule>(const std::string& name)>;",
+        "using TurboModuleProviderFunctionTypeWithRuntime =",
+        "    std::function<std::shared_ptr<TurboModule>(jsi::Runtime& runtime, const std::string& name)>;"
+      ) -join [Environment]::NewLine
+      $UpdatedTurboModuleCompatibilityText = $UpdatedTurboModuleCompatibilityText.Replace(
+        $TurboModuleProviderNeedle,
+        $TurboModuleProviderReplacement
+      ).Replace(
+        ($TurboModuleProviderNeedle -replace "`r`n", "`n"),
+        ($TurboModuleProviderReplacement -replace "`r`n", "`n")
+      )
+    }
+
+    if ($UpdatedTurboModuleCompatibilityText -ne $TurboModuleCompatibilityText) {
+      Set-Content -Path $TurboModuleCompatibilityHeader -Value $UpdatedTurboModuleCompatibilityText -NoNewline
+      Write-Host "Applied TurboModule provider runtime compatibility patch: $TurboModuleCompatibilityHeader"
+      $PatchedAny = $true
+    } else {
+      Write-Host "TurboModule provider runtime compatibility patch was not needed: $TurboModuleCompatibilityHeader"
+    }
+  }
+
   $ReactCommonProject = Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\ReactCommon.vcxproj"
   if (Test-Path $ReactCommonProject) {
     $ReactCommonProjectText = Get-Content $ReactCommonProject -Raw
