@@ -40,24 +40,45 @@ function Get-MSBuildPath {
 }
 
 function Repair-ReactNativeWindowsSources {
-  $MacOSNetworkDir = Join-Path $RootDir "node_modules\react-native-macos\ReactCommon\jsinspector-modern\network"
-  $ReactNativeNetworkDir = Join-Path $RootDir "node_modules\react-native\ReactCommon\jsinspector-modern\network"
-  $NetworkCompatibilityFiles = @(
-    "NetworkReporter.cpp",
-    "NetworkReporter.h",
-    "NetworkTypes.h"
+  $PatchedAny = $false
+  $ReactNativeJsInspectorDir = Join-Path $RootDir "node_modules\react-native\ReactCommon\jsinspector-modern"
+  $WindowsTempJsInspectorDir = Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\jsinspector-modern"
+  $JsInspectorCompatibilityFiles = @(
+    "NetworkIOAgent.cpp",
+    "NetworkIOAgent.h"
   )
 
-  if ((Test-Path $MacOSNetworkDir) -and (Test-Path $ReactNativeNetworkDir)) {
-    foreach ($FileName in $NetworkCompatibilityFiles) {
-      $SourcePath = Join-Path $MacOSNetworkDir $FileName
-      $DestinationPath = Join-Path $ReactNativeNetworkDir $FileName
+  if ((Test-Path $ReactNativeJsInspectorDir) -and (Test-Path $WindowsTempJsInspectorDir)) {
+    foreach ($FileName in $JsInspectorCompatibilityFiles) {
+      $SourcePath = Join-Path $ReactNativeJsInspectorDir $FileName
+      $DestinationPath = Join-Path $WindowsTempJsInspectorDir $FileName
       if (!(Test-Path $SourcePath)) {
         continue
       }
 
       Copy-Item $SourcePath $DestinationPath -Force
-      Write-Host "Synced jsinspector network compatibility file: $DestinationPath"
+      Write-Host "Synced jsinspector compatibility file: $DestinationPath"
+      $PatchedAny = $true
+    }
+  }
+
+  $ReactCommonProject = Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\ReactCommon.vcxproj"
+  if (Test-Path $ReactCommonProject) {
+    $ReactCommonProjectText = Get-Content $ReactCommonProject -Raw
+    $UpdatedReactCommonProjectText = $ReactCommonProjectText.Replace(
+      '$(ReactNativeDir)\ReactCommon\jsinspector-modern\tracing\NetworkReporter.h',
+      '$(ReactNativeDir)\ReactCommon\jsinspector-modern\network\NetworkHandler.h'
+    ).Replace(
+      '$(ReactNativeDir)\ReactCommon\jsinspector-modern\network\NetworkReporter.cpp',
+      '$(ReactNativeDir)\ReactCommon\jsinspector-modern\network\NetworkHandler.cpp'
+    )
+
+    if ($UpdatedReactCommonProjectText -ne $ReactCommonProjectText) {
+      Set-Content -Path $ReactCommonProject -Value $UpdatedReactCommonProjectText -NoNewline
+      Write-Host "Applied ReactCommon jsinspector project compatibility patch: $ReactCommonProject"
+      $PatchedAny = $true
+    } else {
+      Write-Host "ReactCommon jsinspector project compatibility patch was not needed: $ReactCommonProject"
     }
   }
 
@@ -65,7 +86,6 @@ function Repair-ReactNativeWindowsSources {
     (Join-Path $RootDir "node_modules\react-native\ReactCommon\cxxreact\JSIndexedRAMBundle.cpp"),
     (Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\cxxreact\JSIndexedRAMBundle.cpp")
   )
-  $PatchedAny = $false
 
   foreach ($BundleSource in $CandidateSources) {
     if (!(Test-Path $BundleSource)) {
