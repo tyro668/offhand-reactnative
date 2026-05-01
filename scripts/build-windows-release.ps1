@@ -198,11 +198,14 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Step "Build Windows package"
 $MSBuild = Get-MSBuildPath
+$ReactNativeWindowsDir = Join-Path $RootDir "node_modules\react-native-windows"
 & $MSBuild $PackageProject `
   /m `
   /restore `
   "/p:Configuration=$Configuration" `
   "/p:Platform=$Platform" `
+  "/p:SolutionDir=$WindowsDir\" `
+  "/p:ReactNativeWindowsDir=$ReactNativeWindowsDir\" `
   "/p:AppxBundle=Never" `
   "/p:UapAppxPackageBuildMode=SideloadOnly" `
   "/p:AppxPackageSigningEnabled=false" `
