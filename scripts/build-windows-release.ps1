@@ -187,6 +187,15 @@ npx react-native bundle `
   --dev false `
   --reset-cache
 
+Write-Step "Update Windows native module autolinks"
+npx @react-native-community/cli autolink-windows `
+  --sln "windows\OffhandReactnative.sln" `
+  --proj "windows\OffhandReactnative\OffhandReactnative.vcxproj"
+
+if ($LASTEXITCODE -ne 0) {
+  throw "Windows autolink failed with exit code $LASTEXITCODE"
+}
+
 Write-Step "Build Windows package"
 $MSBuild = Get-MSBuildPath
 & $MSBuild $PackageProject `
