@@ -39,6 +39,33 @@ function Get-MSBuildPath {
   throw "MSBuild was not found. Install Visual Studio 2022 with Desktop development with C++ and UWP/Desktop Bridge tools."
 }
 
+function Repair-ReactNativeWindowsSources {
+  $BundleSource = Join-Path $RootDir "node_modules\react-native\ReactCommon\cxxreact\JSIndexedRAMBundle.cpp"
+  if (!(Test-Path $BundleSource)) {
+    throw "React Native source file was not found at $BundleSource"
+  }
+
+  $Text = Get-Content $BundleSource -Raw
+  if ($Text -match "reinterpret_cast<char \*>\(const_cast<uint8_t \*>\(bundle\.data\(\)\)\)") {
+    Write-Host "React Native Windows RAM bundle compatibility patch is already applied."
+    return
+  }
+
+  $Original = "readBundle(bundle.data(), bundle.size());"
+  $Replacement = "readBundle(reinterpret_cast<char *>(const_cast<uint8_t *>(bundle.data())), static_cast<std::streamsize>(bundle.size()));"
+  if ($Text.Contains($Original)) {
+    $Text = $Text.Replace($Original, $Replacement)
+    Set-Content -Path $BundleSource -Value $Text -NoNewline
+    Write-Host "Applied React Native Windows RAM bundle compatibility patch."
+    return
+  }
+
+  Write-Host "React Native Windows RAM bundle compatibility patch was not needed."
+}
+
+Write-Step "Patch React Native Windows sources"
+Repair-ReactNativeWindowsSources
+
 Write-Step "Generate Windows JS bundle"
 if (Test-Path $BundleDir) {
   Remove-Item $BundleDir -Recurse -Force

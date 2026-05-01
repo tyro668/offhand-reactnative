@@ -11,9 +11,63 @@ APP_PATH="$BUILD_DIR/Build/Products/Release/$PRODUCT_NAME.app"
 DIST_DIR="$ROOT_DIR/dist"
 ZIP_PATH="$DIST_DIR/$PRODUCT_NAME-macOS-$VERSION.zip"
 LEGACY_ZIP_PATH="$DIST_DIR/OffhandReactnative-macOS-$VERSION.zip"
+PODS_NEED_INSTALL=0
+
+export RCT_NEW_ARCH_ENABLED="${RCT_NEW_ARCH_ENABLED:-0}"
 
 log_step() {
   printf '\n> %s\n' "$1"
+}
+
+disable_codegen_for_macos_unsupported_dependencies() {
+  local result
+  result="$(node - "$ROOT_DIR" <<'NODE'
+const cp = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const rootDir = process.argv[2];
+const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const config = JSON.parse(
+  cp.execFileSync(npxCommand, ['react-native', 'config'], {
+    cwd: rootDir,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  }),
+);
+
+let changed = false;
+for (const [dependencyName, dependencyConfig] of Object.entries(config.dependencies ?? {})) {
+  if (dependencyConfig?.platforms?.macos !== null) {
+    continue;
+  }
+
+  const packageJsonPath = path.join(rootDir, 'node_modules', dependencyName, 'package.json');
+  if (!fs.existsSync(packageJsonPath)) {
+    continue;
+  }
+
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  if (!packageJson.codegenConfig) {
+    continue;
+  }
+
+  delete packageJson.codegenConfig;
+  fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+  changed = true;
+  console.log(`Disabled codegen for macOS-unsupported dependency: ${dependencyName}`);
+}
+
+if (!changed) {
+  console.log('No macOS-unsupported dependency codegen patches were needed.');
+}
+NODE
+)"
+  printf '%s\n' "$result"
+
+  if [[ "$result" == *"Disabled codegen for macOS-unsupported dependency:"* ]]; then
+    PODS_NEED_INSTALL=1
+  fi
 }
 
 ensure_codegen_compatibility() {
@@ -33,7 +87,24 @@ ensure_codegen_compatibility() {
   mkdir -p "$(dirname "$target")"
   rm -rf "$target"
   cp -R "$source" "$target"
+  PODS_NEED_INSTALL=1
   echo "Aligned React Native macOS codegen package: $target"
+}
+
+clear_codegen_outputs_if_needed() {
+  if [[ "$PODS_NEED_INSTALL" != "1" ]] && [[ "${CI:-}" != "true" ]]; then
+    return
+  fi
+
+  if [[ "${CI:-}" == "true" ]]; then
+    PODS_NEED_INSTALL=1
+  fi
+
+  local generated_dir="$MACOS_DIR/build/generated/ios"
+  if [[ -d "$generated_dir" ]]; then
+    rm -rf "$generated_dir"
+    echo "Removed stale React Native generated sources: $generated_dir"
+  fi
 }
 
 ensure_pods_installed_if_needed() {
@@ -45,7 +116,7 @@ ensure_pods_installed_if_needed() {
   local podfile_lock="$MACOS_DIR/Podfile.lock"
   local manifest_lock="$MACOS_DIR/Pods/Manifest.lock"
 
-  if [[ -f "$podfile_lock" ]] && [[ -f "$manifest_lock" ]] && cmp -s "$podfile_lock" "$manifest_lock"; then
+  if [[ "$PODS_NEED_INSTALL" != "1" ]] && [[ -f "$podfile_lock" ]] && [[ -f "$manifest_lock" ]] && cmp -s "$podfile_lock" "$manifest_lock"; then
     echo "CocoaPods manifest is up to date."
     return
   fi
@@ -108,14 +179,24 @@ build_release_app() {
 
   (
     cd "$MACOS_DIR"
-    xcodebuild \
-      -workspace OffhandReactnative.xcworkspace \
-      -scheme "$SCHEME" \
-      -configuration Release \
-      -destination "platform=macOS" \
-      -derivedDataPath build \
-      build \
-      "${code_sign_args[@]}"
+    if (( ${#code_sign_args[@]} > 0 )); then
+      xcodebuild \
+        -workspace OffhandReactnative.xcworkspace \
+        -scheme "$SCHEME" \
+        -configuration Release \
+        -destination "platform=macOS" \
+        -derivedDataPath build \
+        build \
+        "${code_sign_args[@]}"
+    else
+      xcodebuild \
+        -workspace OffhandReactnative.xcworkspace \
+        -scheme "$SCHEME" \
+        -configuration Release \
+        -destination "platform=macOS" \
+        -derivedDataPath build \
+        build
+    fi
   )
 
   if [[ ! -d "$APP_PATH" ]]; then
@@ -139,6 +220,11 @@ bash "$ROOT_DIR/scripts/generate-macos-icons.sh"
 
 log_step "align react-native-macos codegen"
 ensure_codegen_compatibility
+
+log_step "disable macOS-incompatible dependency codegen"
+disable_codegen_for_macos_unsupported_dependencies
+
+clear_codegen_outputs_if_needed
 
 log_step "check CocoaPods"
 ensure_pods_installed_if_needed
