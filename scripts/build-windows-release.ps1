@@ -71,6 +71,9 @@ function Repair-ReactNativeWindowsSources {
     ).Replace(
       '$(ReactNativeDir)\ReactCommon\jsinspector-modern\network\NetworkReporter.cpp',
       '$(ReactNativeDir)\ReactCommon\jsinspector-modern\network\NetworkHandler.cpp'
+    ).Replace(
+      '<DisableSpecificWarnings>4715;4251;4800;4804;4305;4722;%(DisableSpecificWarnings)</DisableSpecificWarnings>',
+      '<DisableSpecificWarnings>4715;4251;4800;4804;4305;4722;4244;4267;%(DisableSpecificWarnings)</DisableSpecificWarnings>'
     )
 
     if ($UpdatedReactCommonProjectText -ne $ReactCommonProjectText) {
