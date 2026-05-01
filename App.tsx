@@ -14,6 +14,7 @@ import {
   loadShortcutConfig,
   saveShortcutConfig,
   loadSetting,
+  saveSetting,
   type ASRRow,
   type TextModelRow,
   type ShortcutRow,
@@ -38,6 +39,12 @@ import ASRSettings from './src/screens/ASRSettings';
 import ModelSettings from './src/screens/ModelSettings';
 import ShortcutSettings from './src/screens/ShortcutSettings';
 import {useRecorder} from './src/services/RecorderWorkflow';
+import {
+  configureSherpaIdleReleaseMinutes,
+  DEFAULT_SHERPA_IDLE_RELEASE_MINUTES,
+  parseSherpaIdleReleaseMinutes,
+  SHERPA_IDLE_RELEASE_SETTING_KEY,
+} from './src/services/sherpaRuntime';
 
 type Screen = 'home' | 'memory' | 'history' | 'settings' | 'asr' | 'model' | 'shortcut';
 type SettingScreen = 'asr' | 'model' | 'shortcut';
@@ -46,11 +53,13 @@ interface Config {
   asr: {engine: string; model: string; language: string; sampleRate: string};
   textModel: {provider: string; model: string; baseUrl: string; apiKey: string; prompt: string};
   shortcut: {modifier: string; key: string};
+  performance: {sherpaIdleReleaseMinutes: number};
 }
 
 const DEFAULT_ASR = {engine: 'sensevoice', model: 'senseVoiceSmall', language: 'auto', sampleRate: '16k'};
 const DEFAULT_TEXT = {provider: '', model: '', baseUrl: '', apiKey: '', prompt: DEFAULT_SYSTEM_PROMPT};
 const DEFAULT_SHORTCUT = {modifier: 'Fn', key: 'Fn'};
+const DEFAULT_PERFORMANCE = {sherpaIdleReleaseMinutes: DEFAULT_SHERPA_IDLE_RELEASE_MINUTES};
 
 function AppContent({initialConfig}: {initialConfig: Config}) {
   const {colors} = useTheme();
@@ -84,7 +93,16 @@ function AppContent({initialConfig}: {initialConfig: Config}) {
       modifier: config.shortcut.modifier,
       key: config.shortcut.key,
     });
+    saveSetting(
+      SHERPA_IDLE_RELEASE_SETTING_KEY,
+      String(config.performance.sherpaIdleReleaseMinutes),
+    );
   }, [config]);
+
+  useEffect(() => {
+    configureSherpaIdleReleaseMinutes(config.performance.sherpaIdleReleaseMinutes)
+      .catch(e => console.warn('[App] configure sherpa idle release failed:', e));
+  }, [config.performance.sherpaIdleReleaseMinutes]);
 
   const menuItems = [
     {key: 'home', label: t('homeMenu'), icon: '⌂'},
@@ -110,6 +128,9 @@ function AppContent({initialConfig}: {initialConfig: Config}) {
             <SettingsScreen
               config={config}
               onNavigate={(s: SettingScreen) => setScreen(s)}
+              onPerformanceChange={performance => {
+                setConfig(prev => ({...prev, performance}));
+              }}
             />
           )}
           {screen === 'asr' && (
@@ -154,6 +175,7 @@ export default function App() {
     asr: DEFAULT_ASR,
     textModel: DEFAULT_TEXT,
     shortcut: DEFAULT_SHORTCUT,
+    performance: DEFAULT_PERFORMANCE,
   });
   const [initialDark, setInitialDark] = useState(false);
   const [initialLang, setInitialLang] = useState<Lang>('zh');
@@ -171,6 +193,12 @@ export default function App() {
       const sc = await loadShortcutConfig(DEFAULT_SHORTCUT);
       const darkStr = await loadSetting('theme', 'false');
       const lang = (await loadSetting('language', 'zh')) as Lang;
+      const sherpaIdleReleaseMinutes = parseSherpaIdleReleaseMinutes(
+        await loadSetting(
+          SHERPA_IDLE_RELEASE_SETTING_KEY,
+          String(DEFAULT_SHERPA_IDLE_RELEASE_MINUTES),
+        ),
+      );
 
       setInitialConfig({
         asr: {
@@ -187,6 +215,7 @@ export default function App() {
           prompt: txt.prompt || DEFAULT_SYSTEM_PROMPT,
         },
         shortcut: sc,
+        performance: {sherpaIdleReleaseMinutes},
       });
       setInitialDark(darkStr === 'true');
       setInitialLang(lang);

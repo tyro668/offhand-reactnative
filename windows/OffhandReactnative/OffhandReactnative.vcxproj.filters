@@ -45,6 +45,9 @@
     <ClInclude Include="OverlayManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SherpaTranscriber.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="pch.h">
       <Filter>Header Files</Filter>
     </ClInclude>

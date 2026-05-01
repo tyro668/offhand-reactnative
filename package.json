@@ -9,6 +9,7 @@
     "macos": "node scripts/run-macos-dev.js",
     "macos:clean": "rm -rf ~/Library/Developer/Xcode/DerivedData/OffhandReactnative-* && node scripts/run-macos-dev.js",
     "macos:release": "bash scripts/build-macos-release.sh",
+    "windows:release": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-release.ps1",
     "build:release": "npm run macos:release",
     "lint": "eslint .",
     "start": "react-native start",

@@ -2,6 +2,7 @@
 #import <Cocoa/Cocoa.h>
 #import <Carbon/Carbon.h>
 #import <ApplicationServices/ApplicationServices.h>
+#import <malloc/malloc.h>
 
 @implementation TextInserter
 
@@ -121,6 +122,11 @@ RCT_EXPORT_METHOD(insertText:(NSString *)text
             [pb setData:data forType:type];
           }
         }
+        size_t releasedBytes = malloc_zone_pressure_relief(NULL, 0);
+        if (releasedBytes > 0) {
+          NSLog(@"[TextInserter] pasteboard restore released %.1f MB",
+                (double)releasedBytes / (1024.0 * 1024.0));
+        }
       } @catch (NSException *exception) {
         NSLog(@"[TextInserter] restore pasteboard skipped after exception: %@ %@", exception.name, exception.reason ?: @"");
       }
@@ -206,15 +212,29 @@ RCT_EXPORT_METHOD(insertText:(NSString *)text
 }
 
 - (NSDictionary<NSPasteboardType, NSData *> *)snapshotPasteboardData:(NSPasteboard *)pasteboard {
+  // Cap the total size of the snapshot we hold onto. Pasteboards routinely
+  // hold copied images / PDFs / RTF in the tens or hundreds of MB; keeping
+  // those alive for the 1s restore delay would temporarily double resident
+  // memory of the app. If the existing pasteboard is too large to safely
+  // mirror, we simply give up restoring it.
+  static const NSUInteger kMaxSnapshotBytes = 20 * 1024 * 1024; // 20MB
+
   NSMutableDictionary<NSPasteboardType, NSData *> *snapshot = [NSMutableDictionary dictionary];
   NSArray<NSPasteboardType> *types = [pasteboard.types copy] ?: @[];
 
+  NSUInteger total = 0;
   for (NSPasteboardType type in types) {
     @try {
       NSData *data = [pasteboard dataForType:type];
-      if (data.length > 0) {
-        snapshot[type] = data;
+      if (data.length == 0) continue;
+      if (data.length > kMaxSnapshotBytes ||
+          total + data.length > kMaxSnapshotBytes) {
+        NSLog(@"[TextInserter] pasteboard snapshot exceeds %.0f MB; skipping restore.",
+              (double)kMaxSnapshotBytes / (1024.0 * 1024.0));
+        return @{};
       }
+      snapshot[type] = data;
+      total += data.length;
     } @catch (NSException *exception) {
       NSLog(@"[TextInserter] pasteboard snapshot skipped type %@ after exception: %@ %@",
             type,

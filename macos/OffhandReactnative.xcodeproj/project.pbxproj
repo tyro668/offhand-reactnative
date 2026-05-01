@@ -23,6 +23,7 @@
 		AA0000000000000000B00010 /* MarkdownFileImporter.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00015 /* MarkdownFileImporter.m */; };
 		AA0000000000000000B00011 /* ModelDownloader.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00017 /* ModelDownloader.m */; };
 		AA0000000000000000B00012 /* SherpaTranscriber.mm in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00019 /* SherpaTranscriber.mm */; };
+		AA0000000000000000B00013 /* SherpaHelper.mm in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000A00021 /* SherpaHelper.mm */; };
 		89DD7BFA891383EF8A79E499 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5AF3B7FC1C7CC7FBAFF7B89C /* PrivacyInfo.xcprivacy */; };
 		B7D471A0B3898C23F686E48A /* libPods-OffhandReactnative-macOS.a in Frameworks */ = {isa = PBXBuildFile; fileRef = DA06A7EBE09D692A9FA8CDCD /* libPods-OffhandReactnative-macOS.a */; };
 /* End PBXBuildFile section */
@@ -57,6 +58,8 @@
 		AA0000000000000000A00017 /* ModelDownloader.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ModelDownloader.m; sourceTree = "<group>"; };
 		AA0000000000000000A00018 /* SherpaTranscriber.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SherpaTranscriber.h; sourceTree = "<group>"; };
 		AA0000000000000000A00019 /* SherpaTranscriber.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SherpaTranscriber.mm; sourceTree = "<group>"; };
+		AA0000000000000000A00020 /* SherpaHelper.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SherpaHelper.h; sourceTree = "<group>"; };
+		AA0000000000000000A00021 /* SherpaHelper.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SherpaHelper.mm; sourceTree = "<group>"; };
 		551E6587DD4939B081E21B2D /* Pods-OffhandReactnative-macOS.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-OffhandReactnative-macOS.release.xcconfig"; path = "Target Support Files/Pods-OffhandReactnative-macOS/Pods-OffhandReactnative-macOS.release.xcconfig"; sourceTree = "<group>"; };
 		5AF3B7FC1C7CC7FBAFF7B89C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		DA06A7EBE09D692A9FA8CDCD /* libPods-OffhandReactnative-macOS.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-OffhandReactnative-macOS.a"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -121,6 +124,8 @@
 				AA0000000000000000A00017 /* ModelDownloader.m */,
 				AA0000000000000000A00018 /* SherpaTranscriber.h */,
 				AA0000000000000000A00019 /* SherpaTranscriber.mm */,
+				AA0000000000000000A00020 /* SherpaHelper.h */,
+				AA0000000000000000A00021 /* SherpaHelper.mm */,
 			);
 			path = "OffhandReactnative-macOS";
 			sourceTree = "<group>";
@@ -390,6 +395,7 @@
 				AA0000000000000000B00010 /* MarkdownFileImporter.m in Sources */,
 				AA0000000000000000B00011 /* ModelDownloader.m in Sources */,
 				AA0000000000000000B00012 /* SherpaTranscriber.mm in Sources */,
+				AA0000000000000000B00013 /* SherpaHelper.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

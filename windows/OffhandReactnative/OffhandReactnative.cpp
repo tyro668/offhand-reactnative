@@ -7,7 +7,13 @@
 #include "AutolinkedNativeModules.g.h"
 
 #include "NativeModules.h"
+#include "AppPaths.h"
+#include "AudioRecorder.h"
 #include "MarkdownFileImporter.h"
+#include "ModelDownloader.h"
+#include "OverlayManager.h"
+#include "SherpaTranscriber.h"
+#include "TextInserter.h"
 
 // A PackageProvider containing any turbo modules you define within this app project
 struct CompReactPackageProvider

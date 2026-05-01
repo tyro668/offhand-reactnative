@@ -4,6 +4,7 @@
 #import <React/RCTLog.h>
 #import <sherpa-onnx/c-api/c-api.h>
 #import <dlfcn.h>
+#import <malloc/malloc.h>
 
 #import <string>
 
@@ -63,14 +64,28 @@ struct SherpaOnnxApi {
 }
 @property (nonatomic, copy) NSString *cachedKey;
 @property (nonatomic, strong) dispatch_queue_t workQueue;
+@property (nonatomic, assign) double idleReleaseTimeoutMs;
+@property (nonatomic, assign) NSInteger activeTranscriptions;
+@property (nonatomic, strong) dispatch_source_t idleReleaseTimer;
 @end
 
 @implementation SherpaTranscriber
 
 RCT_EXPORT_MODULE();
 
+static const double STDefaultIdleReleaseTimeoutMs = 3.0 * 60.0 * 1000.0;
+
 + (BOOL)requiresMainQueueSetup {
   return NO;
+}
+
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    _idleReleaseTimeoutMs = STDefaultIdleReleaseTimeoutMs;
+    _activeTranscriptions = 0;
+  }
+  return self;
 }
 
 - (dispatch_queue_t)methodQueue {
@@ -82,13 +97,19 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)dealloc {
+  [self cancelIdleReleaseTimer];
+  [self destroyRecognizer];
+  [self unloadRuntime];
+}
+
+- (void)destroyRecognizer {
   if (_recognizer) {
     if (_api.DestroyOfflineRecognizer) {
       _api.DestroyOfflineRecognizer(_recognizer);
     }
     _recognizer = nullptr;
   }
-  [self unloadRuntime];
+  self.cachedKey = nil;
 }
 
 - (void)unloadRuntime {
@@ -101,6 +122,65 @@ RCT_EXPORT_MODULE();
     _onnxRuntimeHandle = nullptr;
   }
   memset(&_api, 0, sizeof(_api));
+}
+
+- (BOOL)hasLoadedRuntimeOrRecognizer {
+  return _recognizer || _sherpaHandle || _onnxRuntimeHandle;
+}
+
+- (void)cancelIdleReleaseTimer {
+  if (self.idleReleaseTimer) {
+    dispatch_source_cancel(self.idleReleaseTimer);
+    self.idleReleaseTimer = nil;
+  }
+}
+
+- (void)releaseRecognizerAndRuntimeWithReason:(NSString *)reason {
+  [self cancelIdleReleaseTimer];
+  if (![self hasLoadedRuntimeOrRecognizer]) {
+    return;
+  }
+  [self destroyRecognizer];
+  [self unloadRuntime];
+  size_t releasedBytes = malloc_zone_pressure_relief(NULL, 0);
+  STLog(@"Sherpa runtime released (%@); malloc pressure relief released %.1f MB",
+        reason ?: @"manual",
+        (double)releasedBytes / (1024.0 * 1024.0));
+}
+
+- (void)scheduleIdleReleaseIfNeeded {
+  [self cancelIdleReleaseTimer];
+  if (self.activeTranscriptions > 0 || ![self hasLoadedRuntimeOrRecognizer]) {
+    return;
+  }
+
+  double timeoutMs = self.idleReleaseTimeoutMs;
+  if (timeoutMs <= 0) {
+    return;
+  }
+
+  dispatch_queue_t queue = [self methodQueue];
+  dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
+  int64_t delayNs = (int64_t)(timeoutMs * (double)NSEC_PER_MSEC);
+  dispatch_source_set_timer(timer,
+                            dispatch_time(DISPATCH_TIME_NOW, delayNs),
+                            DISPATCH_TIME_FOREVER,
+                            5 * NSEC_PER_SEC);
+
+  __weak SherpaTranscriber *weakSelf = self;
+  dispatch_source_set_event_handler(timer, ^{
+    SherpaTranscriber *strongSelf = weakSelf;
+    if (!strongSelf) {
+      return;
+    }
+    if (strongSelf.activeTranscriptions == 0) {
+      [strongSelf releaseRecognizerAndRuntimeWithReason:@"idle timeout"];
+    }
+  });
+
+  self.idleReleaseTimer = timer;
+  dispatch_resume(timer);
+  STLog(@"scheduled Sherpa idle release in %.0f ms", timeoutMs);
 }
 
 #pragma mark - Helpers
@@ -313,9 +393,7 @@ RCT_EXPORT_MODULE();
   }
 
   if (_recognizer) {
-    _api.DestroyOfflineRecognizer(_recognizer);
-    _recognizer = nullptr;
-    self.cachedKey = nil;
+    [self destroyRecognizer];
   }
 
   NSString *modelDir = [SherpaTranscriber modelDirForKey:modelKey];
@@ -481,6 +559,19 @@ RCT_EXPORT_METHOD(isModelReady:(NSString *)engine
   resolve(@(ready));
 }
 
+RCT_EXPORT_METHOD(setIdleReleaseTimeoutMs:(nonnull NSNumber *)timeoutMs
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject) {
+  double nextTimeoutMs = timeoutMs ? [timeoutMs doubleValue] : STDefaultIdleReleaseTimeoutMs;
+  if (nextTimeoutMs != nextTimeoutMs || nextTimeoutMs < 0) {
+    nextTimeoutMs = STDefaultIdleReleaseTimeoutMs;
+  }
+  self.idleReleaseTimeoutMs = nextTimeoutMs;
+  STLog(@"Sherpa idle release timeout set to %.0f ms", self.idleReleaseTimeoutMs);
+  [self scheduleIdleReleaseIfNeeded];
+  resolve(@YES);
+}
+
 RCT_EXPORT_METHOD(transcribeFile:(NSString *)filePath
                   engine:(NSString *)engine
                   modelKey:(NSString *)modelKey
@@ -497,6 +588,20 @@ RCT_EXPORT_METHOD(transcribeFile:(NSString *)filePath
     return;
   }
 
+  self.activeTranscriptions += 1;
+  [self cancelIdleReleaseTimer];
+  __block BOOL finishedTranscription = NO;
+  void (^finishTranscription)(void) = ^{
+    if (finishedTranscription) {
+      return;
+    }
+    finishedTranscription = YES;
+    if (self.activeTranscriptions > 0) {
+      self.activeTranscriptions -= 1;
+    }
+    [self scheduleIdleReleaseIfNeeded];
+  };
+
   NSString *normalizedLang = [SherpaTranscriber normalizeLanguage:language forEngine:engine];
   STLog(@"transcribeFile engine=%@ modelKey=%@ lang=%@ file=%@", engine, modelKey, normalizedLang,
         filePath);
@@ -507,12 +612,14 @@ RCT_EXPORT_METHOD(transcribeFile:(NSString *)filePath
                               language:normalizedLang
                                  error:&err]) {
     STLog(@"ensureRecognizer failed: %@", err);
+    finishTranscription();
     reject(@"sherpa_init_failed", err ?: @"Failed to initialize recognizer.", nil);
     return;
   }
 
   const SherpaOnnxWave *wave = _api.ReadWave([filePath UTF8String]);
   if (!wave) {
+    finishTranscription();
     reject(@"sherpa_wave_read_failed",
            [NSString stringWithFormat:@"Failed to read WAV: %@", filePath], nil);
     return;
@@ -521,6 +628,7 @@ RCT_EXPORT_METHOD(transcribeFile:(NSString *)filePath
   const SherpaOnnxOfflineStream *stream = _api.CreateOfflineStream(_recognizer);
   if (!stream) {
     _api.FreeWave(wave);
+    finishTranscription();
     reject(@"sherpa_stream_failed", @"Failed to create offline stream.", nil);
     return;
   }
@@ -545,6 +653,7 @@ RCT_EXPORT_METHOD(transcribeFile:(NSString *)filePath
   _api.DestroyOfflineStream(stream);
   _api.FreeWave(wave);
 
+  finishTranscription();
   resolve(text);
 }
 

@@ -1,0 +1,103 @@
+name: Desktop Release Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/desktop-release.yml"
+      - "App.tsx"
+      - "index.js"
+      - "package.json"
+      - "package-lock.json"
+      - "babel.config.js"
+      - "metro.config.js"
+      - "react-native.config.js"
+      - "src/**"
+      - "assets/**"
+      - "macos/**"
+      - "windows/**"
+      - "scripts/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    name: Build macOS app
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.11.0"
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Install CocoaPods dependencies
+        run: |
+          cd macos
+          pod install
+
+      - name: TypeScript check
+        run: npx tsc --noEmit --pretty false
+
+      - name: Build macOS release
+        run: npm run macos:release
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: offhand-macos-release
+          path: |
+            dist/*.zip
+            macos/build/Build/Products/Release/*.app
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows app
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.11.0"
+          cache: npm
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install JS dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: TypeScript check
+        run: npx tsc --noEmit --pretty false
+
+      - name: Build Windows release
+        shell: pwsh
+        run: npm run windows:release
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: offhand-windows-release
+          path: |
+            dist/windows/*.zip
+            windows/OffhandReactnative.Package/AppPackages/**
+          if-no-files-found: error

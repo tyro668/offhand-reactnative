@@ -1,5 +1,5 @@
 import React from 'react';
-import {View, Text, StyleSheet} from 'react-native';
+import {Platform, View, Text, StyleSheet} from 'react-native';
 import TouchableOpacity from '../components/TouchableOpacityCompat';
 import {useI18n} from '../i18n/I18nContext';
 import {useTheme, type ThemeColors} from '../theme/ThemeContext';
@@ -11,12 +11,17 @@ interface Props {
   onBack: () => void;
 }
 
-// The recording shortcut is hard-wired to the macOS `fn` key.
-// Press fn and release to start; press fn and release again to stop.
+// macOS listens to the hardware fn key. Windows cannot reliably observe fn at
+// the OS level, so the native bridge uses F8 for the same global toggle flow.
 export default function ShortcutSettings({onBack}: Props) {
   const {t} = useI18n();
   const {colors} = useTheme();
   const s = makeStyles(colors);
+  const shortcutKey = Platform.OS === 'windows' ? 'F8' : 'fn';
+  const shortcutHint =
+    Platform.OS === 'windows' ? t('windowsShortcutHint') : t('fnShortcutHint');
+  const permissionHint =
+    Platform.OS === 'windows' ? t('windowsPermissionHint') : t('fnPermissionHint');
 
   return (
     <View style={s.container}>
@@ -31,11 +36,11 @@ export default function ShortcutSettings({onBack}: Props) {
       <View style={s.body}>
         <View style={s.preview}>
           <Text style={s.previewLabel}>{t('currentShortcut')}</Text>
-          <Text style={s.previewKey}>fn</Text>
+          <Text style={s.previewKey}>{shortcutKey}</Text>
         </View>
 
-        <Text style={s.hint}>{t('fnShortcutHint')}</Text>
-        <Text style={s.permissionHint}>{t('fnPermissionHint')}</Text>
+        <Text style={s.hint}>{shortcutHint}</Text>
+        <Text style={s.permissionHint}>{permissionHint}</Text>
       </View>
     </View>
   );

@@ -315,8 +315,8 @@ async function transcribeAudio(
   appendLog: (message: string) => void,
 ): Promise<string> {
   const asr = await loadASRConfig({
-    engine: 'apple-speech',
-    model: 'apple-speech',
+    engine: 'sensevoice',
+    model: 'senseVoiceSmall',
     language: 'auto',
     sample_rate: '16k',
   });
