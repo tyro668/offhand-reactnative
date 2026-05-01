@@ -2,11 +2,13 @@
 #import "AppPaths.h"
 #import <Foundation/Foundation.h>
 #import <React/RCTLog.h>
-#import <sherpa-onnx/c-api/c-api.h>
-#import <dlfcn.h>
-#import <malloc/malloc.h>
+#import <signal.h>
+#import <unistd.h>
 
-#import <string>
+// Sherpa transcription is performed in a dedicated child process, started by
+// re-execing the app's own binary with `--sherpa-helper`. The child is the only
+// process that loads sherpa-onnx + ONNX Runtime, so killing it on idle timeout
+// returns all inference memory to the kernel.
 
 static void STLog(NSString *format, ...) {
   va_list args;
@@ -32,41 +34,16 @@ static void STLog(NSString *format, ...) {
   }
 }
 
-struct SherpaOnnxApi {
-  const SherpaOnnxOfflineRecognizer *(*CreateOfflineRecognizer)(
-      const SherpaOnnxOfflineRecognizerConfig *config);
-  void (*DestroyOfflineRecognizer)(const SherpaOnnxOfflineRecognizer *recognizer);
-  const SherpaOnnxOfflineStream *(*CreateOfflineStream)(
-      const SherpaOnnxOfflineRecognizer *recognizer);
-  void (*DestroyOfflineStream)(const SherpaOnnxOfflineStream *stream);
-  void (*AcceptWaveformOffline)(const SherpaOnnxOfflineStream *stream,
-                                int32_t sample_rate,
-                                const float *samples,
-                                int32_t n);
-  void (*OfflineStreamSetOption)(const SherpaOnnxOfflineStream *stream,
-                                 const char *key,
-                                 const char *value);
-  void (*DecodeOfflineStream)(const SherpaOnnxOfflineRecognizer *recognizer,
-                              const SherpaOnnxOfflineStream *stream);
-  const SherpaOnnxOfflineRecognizerResult *(*GetOfflineStreamResult)(
-      const SherpaOnnxOfflineStream *stream);
-  void (*DestroyOfflineRecognizerResult)(
-      const SherpaOnnxOfflineRecognizerResult *r);
-  const SherpaOnnxWave *(*ReadWave)(const char *filename);
-  void (*FreeWave)(const SherpaOnnxWave *wave);
-};
-
-@interface SherpaTranscriber () {
-  const SherpaOnnxOfflineRecognizer *_recognizer;
-  void *_onnxRuntimeHandle;
-  void *_sherpaHandle;
-  SherpaOnnxApi _api;
-}
-@property (nonatomic, copy) NSString *cachedKey;
+@interface SherpaTranscriber ()
 @property (nonatomic, strong) dispatch_queue_t workQueue;
 @property (nonatomic, assign) double idleReleaseTimeoutMs;
 @property (nonatomic, assign) NSInteger activeTranscriptions;
 @property (nonatomic, strong) dispatch_source_t idleReleaseTimer;
+@property (nonatomic, strong) NSTask *helperTask;
+@property (nonatomic, strong) NSPipe *helperStdin;
+@property (nonatomic, strong) NSPipe *helperStdout;
+@property (nonatomic, strong) NSPipe *helperStderr;
+@property (nonatomic, strong) NSMutableData *helperStdoutBuffer;
 @end
 
 @implementation SherpaTranscriber
@@ -98,92 +75,10 @@ static const double STDefaultIdleReleaseTimeoutMs = 3.0 * 60.0 * 1000.0;
 
 - (void)dealloc {
   [self cancelIdleReleaseTimer];
-  [self destroyRecognizer];
-  [self unloadRuntime];
+  [self killHelperWithReason:@"dealloc"];
 }
 
-- (void)destroyRecognizer {
-  if (_recognizer) {
-    if (_api.DestroyOfflineRecognizer) {
-      _api.DestroyOfflineRecognizer(_recognizer);
-    }
-    _recognizer = nullptr;
-  }
-  self.cachedKey = nil;
-}
-
-- (void)unloadRuntime {
-  if (_sherpaHandle) {
-    dlclose(_sherpaHandle);
-    _sherpaHandle = nullptr;
-  }
-  if (_onnxRuntimeHandle) {
-    dlclose(_onnxRuntimeHandle);
-    _onnxRuntimeHandle = nullptr;
-  }
-  memset(&_api, 0, sizeof(_api));
-}
-
-- (BOOL)hasLoadedRuntimeOrRecognizer {
-  return _recognizer || _sherpaHandle || _onnxRuntimeHandle;
-}
-
-- (void)cancelIdleReleaseTimer {
-  if (self.idleReleaseTimer) {
-    dispatch_source_cancel(self.idleReleaseTimer);
-    self.idleReleaseTimer = nil;
-  }
-}
-
-- (void)releaseRecognizerAndRuntimeWithReason:(NSString *)reason {
-  [self cancelIdleReleaseTimer];
-  if (![self hasLoadedRuntimeOrRecognizer]) {
-    return;
-  }
-  [self destroyRecognizer];
-  [self unloadRuntime];
-  size_t releasedBytes = malloc_zone_pressure_relief(NULL, 0);
-  STLog(@"Sherpa runtime released (%@); malloc pressure relief released %.1f MB",
-        reason ?: @"manual",
-        (double)releasedBytes / (1024.0 * 1024.0));
-}
-
-- (void)scheduleIdleReleaseIfNeeded {
-  [self cancelIdleReleaseTimer];
-  if (self.activeTranscriptions > 0 || ![self hasLoadedRuntimeOrRecognizer]) {
-    return;
-  }
-
-  double timeoutMs = self.idleReleaseTimeoutMs;
-  if (timeoutMs <= 0) {
-    return;
-  }
-
-  dispatch_queue_t queue = [self methodQueue];
-  dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
-  int64_t delayNs = (int64_t)(timeoutMs * (double)NSEC_PER_MSEC);
-  dispatch_source_set_timer(timer,
-                            dispatch_time(DISPATCH_TIME_NOW, delayNs),
-                            DISPATCH_TIME_FOREVER,
-                            5 * NSEC_PER_SEC);
-
-  __weak SherpaTranscriber *weakSelf = self;
-  dispatch_source_set_event_handler(timer, ^{
-    SherpaTranscriber *strongSelf = weakSelf;
-    if (!strongSelf) {
-      return;
-    }
-    if (strongSelf.activeTranscriptions == 0) {
-      [strongSelf releaseRecognizerAndRuntimeWithReason:@"idle timeout"];
-    }
-  });
-
-  self.idleReleaseTimer = timer;
-  dispatch_resume(timer);
-  STLog(@"scheduled Sherpa idle release in %.0f ms", timeoutMs);
-}
-
-#pragma mark - Helpers
+#pragma mark - Path helpers
 
 + (NSString *)runtimeCurrentDir {
   return [[[AppPaths appDataDirectory] stringByAppendingPathComponent:@"sherpa-onnx/runtime"]
@@ -218,82 +113,6 @@ static const double STDefaultIdleReleaseTimeoutMs = 3.0 * 60.0 * 1000.0;
          [[NSFileManager defaultManager] fileExistsAtPath:onnx];
 }
 
-- (BOOL)loadSymbol:(void **)target name:(const char *)name error:(NSString **)errorOut {
-  dlerror();
-  *target = dlsym(_sherpaHandle, name);
-  const char *err = dlerror();
-  if (err || !*target) {
-    if (errorOut) {
-      *errorOut = [NSString stringWithFormat:@"Sherpa runtime is missing symbol %s: %s",
-                                             name, err ?: "not found"];
-    }
-    return NO;
-  }
-  return YES;
-}
-
-- (BOOL)ensureRuntimeLoaded:(NSString **)errorOut {
-  if (_sherpaHandle) {
-    return YES;
-  }
-
-  if (![SherpaTranscriber isRuntimeReadyAtPath]) {
-    if (errorOut) {
-      *errorOut = [NSString stringWithFormat:
-          @"Sherpa runtime is not downloaded. Please download a SenseVoice or Whisper model in ASR settings first. Runtime path: %@",
-          [SherpaTranscriber runtimeCurrentDir]];
-    }
-    return NO;
-  }
-
-  NSString *onnxPath = [SherpaTranscriber onnxRuntimeLibraryPath];
-  if (onnxPath.length > 0) {
-    _onnxRuntimeHandle = dlopen(onnxPath.UTF8String, RTLD_NOW | RTLD_GLOBAL);
-    if (!_onnxRuntimeHandle) {
-      if (errorOut) {
-        *errorOut = [NSString stringWithFormat:@"Failed to load ONNX Runtime at %@: %s",
-                                               onnxPath, dlerror()];
-      }
-      return NO;
-    }
-  }
-
-  NSString *sherpaPath = [SherpaTranscriber sherpaLibraryPath];
-  _sherpaHandle = dlopen(sherpaPath.UTF8String, RTLD_NOW | RTLD_LOCAL);
-  if (!_sherpaHandle) {
-    if (errorOut) {
-      *errorOut = [NSString stringWithFormat:@"Failed to load Sherpa runtime at %@: %s",
-                                             sherpaPath, dlerror()];
-    }
-    if (_onnxRuntimeHandle) {
-      dlclose(_onnxRuntimeHandle);
-      _onnxRuntimeHandle = nullptr;
-    }
-    return NO;
-  }
-
-#define LOAD_SHERPA_SYMBOL(field, symbol)                                      \
-  if (![self loadSymbol:(void **)&_api.field name:symbol error:errorOut]) {    \
-    [self unloadRuntime];                                                      \
-    return NO;                                                                 \
-  }
-  LOAD_SHERPA_SYMBOL(CreateOfflineRecognizer, "SherpaOnnxCreateOfflineRecognizer");
-  LOAD_SHERPA_SYMBOL(DestroyOfflineRecognizer, "SherpaOnnxDestroyOfflineRecognizer");
-  LOAD_SHERPA_SYMBOL(CreateOfflineStream, "SherpaOnnxCreateOfflineStream");
-  LOAD_SHERPA_SYMBOL(DestroyOfflineStream, "SherpaOnnxDestroyOfflineStream");
-  LOAD_SHERPA_SYMBOL(AcceptWaveformOffline, "SherpaOnnxAcceptWaveformOffline");
-  LOAD_SHERPA_SYMBOL(OfflineStreamSetOption, "SherpaOnnxOfflineStreamSetOption");
-  LOAD_SHERPA_SYMBOL(DecodeOfflineStream, "SherpaOnnxDecodeOfflineStream");
-  LOAD_SHERPA_SYMBOL(GetOfflineStreamResult, "SherpaOnnxGetOfflineStreamResult");
-  LOAD_SHERPA_SYMBOL(DestroyOfflineRecognizerResult, "SherpaOnnxDestroyOfflineRecognizerResult");
-  LOAD_SHERPA_SYMBOL(ReadWave, "SherpaOnnxReadWave");
-  LOAD_SHERPA_SYMBOL(FreeWave, "SherpaOnnxFreeWave");
-#undef LOAD_SHERPA_SYMBOL
-
-  STLog(@"Sherpa runtime loaded from %@", sherpaPath);
-  return YES;
-}
-
 + (NSString *)modelDirForKey:(NSString *)modelKey {
   NSString *root = [[AppPaths appDataDirectory] stringByAppendingPathComponent:@"models"];
   return [root stringByAppendingPathComponent:modelKey ?: @""];
@@ -309,65 +128,12 @@ static const double STDefaultIdleReleaseTimeoutMs = 3.0 * 60.0 * 1000.0;
 }
 
 + (NSString *)senseVoiceModelFileForKey:(NSString *)modelKey {
-  // senseVoiceSmall = quantized; senseVoiceLarge = full precision
   if ([modelKey isEqualToString:@"senseVoiceLarge"]) return @"model.onnx";
   return @"model.int8.onnx";
 }
 
-+ (long long)fileSizeAtPath:(NSString *)path {
-  NSDictionary *attrs = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
-  if (!attrs) return -1;
-  return [attrs[NSFileSize] longLongValue];
-}
-
-+ (BOOL)looksLikeTokensFileAtPath:(NSString *)path {
-  // Tokens files are line-oriented UTF-8 text. Real ones are <50MB; ours is ~309KB.
-  // Reject anything obviously binary or implausibly large.
-  long long size = [self fileSizeAtPath:path];
-  if (size <= 0) return NO;
-  if (size > 50LL * 1024LL * 1024LL) return NO;  // > 50MB → not a tokens file
-
-  NSFileHandle *fh = [NSFileHandle fileHandleForReadingAtPath:path];
-  if (!fh) return NO;
-  NSData *head = [fh readDataOfLength:512];
-  [fh closeFile];
-  if (head.length == 0) return NO;
-
-  const uint8_t *bytes = (const uint8_t *)head.bytes;
-  for (NSUInteger i = 0; i < head.length; i++) {
-    uint8_t b = bytes[i];
-    if (b == 0) return NO;          // NUL → binary
-    // Tokens files use ASCII tokens + UTF-8 continuation bytes; reject obvious
-    // ONNX/protobuf headers (control bytes outside whitespace).
-    if (b < 0x09) return NO;
-    if (b > 0x0D && b < 0x20) return NO;
-  }
-  return YES;
-}
-
-+ (BOOL)looksLikeOnnxFileAtPath:(NSString *)path minBytes:(long long)minBytes {
-  long long size = [self fileSizeAtPath:path];
-  if (size < minBytes) return NO;
-  NSFileHandle *fh = [NSFileHandle fileHandleForReadingAtPath:path];
-  if (!fh) return NO;
-  NSData *head = [fh readDataOfLength:32];
-  [fh closeFile];
-  if (head.length < 8) return NO;
-  // ONNX files are protobuf — they start with field-tag bytes (typically 0x08
-  // for varint or 0x12 for length-delimited). The current shipping models we
-  // care about begin with bytes that include "onnx" near the head; we just
-  // require a non-text leading byte plus a recognisable signature within the
-  // first 32 bytes.
-  const char *needle = "onnx";
-  for (NSInteger i = 0; i + 4 <= (NSInteger)head.length; i++) {
-    if (memcmp((const char *)head.bytes + i, needle, 4) == 0) return YES;
-  }
-  // Fallback: protobuf-ish first byte
-  uint8_t first = ((const uint8_t *)head.bytes)[0];
-  return first == 0x08 || first == 0x12;
-}
-
 + (NSString *)normalizeLanguage:(NSString *)language forEngine:(NSString *)engine {
+  (void)engine;
   NSString *l = (language ?: @"auto").lowercaseString;
   if ([l isEqualToString:@"asrlanguageauto"] || [l isEqualToString:@"auto"] || l.length == 0) {
     return @"auto";
@@ -377,156 +143,234 @@ static const double STDefaultIdleReleaseTimeoutMs = 3.0 * 60.0 * 1000.0;
   return l;
 }
 
-#pragma mark - Recognizer build
+#pragma mark - Helper subprocess
 
-- (BOOL)ensureRecognizerForEngine:(NSString *)engine
-                         modelKey:(NSString *)modelKey
-                         language:(NSString *)language
-                            error:(NSString **)errorOut {
-  if (![self ensureRuntimeLoaded:errorOut]) {
-    return NO;
+- (BOOL)isHelperAlive {
+  return self.helperTask != nil && self.helperTask.isRunning;
+}
+
+- (void)killHelperWithReason:(NSString *)reason {
+  [self cancelIdleReleaseTimer];
+  NSTask *task = self.helperTask;
+  if (!task) {
+    return;
   }
 
-  NSString *cacheKey = [NSString stringWithFormat:@"%@|%@|%@", engine, modelKey, language];
-  if (_recognizer && [self.cachedKey isEqualToString:cacheKey]) {
+  STLog(@"killing sherpa helper (%@) pid=%d", reason ?: @"manual", task.processIdentifier);
+  self.helperStderr.fileHandleForReading.readabilityHandler = nil;
+
+  @try {
+    NSFileHandle *input = self.helperStdin.fileHandleForWriting;
+    NSData *data = [@"{\"cmd\":\"shutdown\"}\n" dataUsingEncoding:NSUTF8StringEncoding];
+    [input writeData:data];
+    [input closeFile];
+  } @catch (NSException *exception) {
+    STLog(@"helper graceful shutdown failed: %@", exception.reason ?: exception.name);
+  }
+
+  for (int i = 0; i < 5 && task.isRunning; i++) {
+    usleep(50 * 1000);
+  }
+  if (task.isRunning) {
+    @try { [task terminate]; } @catch (NSException *e) { (void)e; }
+  }
+  for (int i = 0; i < 10 && task.isRunning; i++) {
+    usleep(50 * 1000);
+  }
+  if (task.isRunning) {
+    kill(task.processIdentifier, SIGKILL);
+  }
+
+  self.helperTask = nil;
+  self.helperStdin = nil;
+  self.helperStdout = nil;
+  self.helperStderr = nil;
+  self.helperStdoutBuffer = nil;
+}
+
+- (BOOL)startHelperWithError:(NSString **)errorOut {
+  if ([self isHelperAlive]) {
     return YES;
   }
 
-  if (_recognizer) {
-    [self destroyRecognizer];
+  NSString *exePath = NSBundle.mainBundle.executablePath;
+  if (exePath.length == 0 || ![NSFileManager.defaultManager fileExistsAtPath:exePath]) {
+    if (errorOut) *errorOut = @"Cannot locate app executable to start sherpa helper.";
+    return NO;
   }
 
-  NSString *modelDir = [SherpaTranscriber modelDirForKey:modelKey];
-  NSFileManager *fm = NSFileManager.defaultManager;
-  if (![fm fileExistsAtPath:modelDir]) {
+  NSTask *task = [[NSTask alloc] init];
+  task.executableURL = [NSURL fileURLWithPath:exePath];
+  task.arguments = @[@"--sherpa-helper"];
+
+  NSPipe *stdinPipe = [NSPipe pipe];
+  NSPipe *stdoutPipe = [NSPipe pipe];
+  NSPipe *stderrPipe = [NSPipe pipe];
+  task.standardInput = stdinPipe;
+  task.standardOutput = stdoutPipe;
+  task.standardError = stderrPipe;
+
+  stderrPipe.fileHandleForReading.readabilityHandler = ^(NSFileHandle *fh) {
+    NSData *data = fh.availableData;
+    if (data.length == 0) return;
+    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+    for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
+      if (line.length > 0) STLog(@"helper: %@", line);
+    }
+  };
+
+  __weak SherpaTranscriber *weakSelf = self;
+  task.terminationHandler = ^(NSTask *terminatedTask) {
+    SherpaTranscriber *strongSelf = weakSelf;
+    STLog(@"sherpa helper exited status=%d reason=%ld",
+          terminatedTask.terminationStatus, (long)terminatedTask.terminationReason);
+    if (!strongSelf) return;
+    dispatch_async([strongSelf methodQueue], ^{
+      if (strongSelf.helperTask == terminatedTask) {
+        strongSelf.helperStderr.fileHandleForReading.readabilityHandler = nil;
+        strongSelf.helperTask = nil;
+        strongSelf.helperStdin = nil;
+        strongSelf.helperStdout = nil;
+        strongSelf.helperStderr = nil;
+        strongSelf.helperStdoutBuffer = nil;
+      }
+    });
+  };
+
+  NSError *launchError = nil;
+  if (![task launchAndReturnError:&launchError]) {
+    stderrPipe.fileHandleForReading.readabilityHandler = nil;
     if (errorOut) {
-      *errorOut = [NSString stringWithFormat:@"Model directory not found: %@", modelDir];
+      *errorOut = [NSString stringWithFormat:@"Failed to launch sherpa helper: %@",
+                                             launchError.localizedDescription ?: @"unknown error"];
     }
     return NO;
   }
 
-  // Persist std::string for paths so the C-API pointers remain valid for the duration
-  // of SherpaOnnxCreateOfflineRecognizer().
-  std::string tokensStr;
-  std::string modelStr;
-  std::string encoderStr;
-  std::string decoderStr;
-  std::string langStr = [language UTF8String] ?: "";
-  std::string taskStr = "transcribe";
-  std::string decodingStr = "greedy_search";
-  std::string providerStr = "cpu";
-
-  SherpaOnnxOfflineRecognizerConfig config;
-  memset(&config, 0, sizeof(config));
-  config.feat_config.sample_rate = 16000;
-  config.feat_config.feature_dim = 80;
-  config.model_config.num_threads = 1;
-  config.model_config.debug = 0;
-  config.model_config.provider = providerStr.c_str();
-  config.decoding_method = decodingStr.c_str();
-  config.max_active_paths = 4;
-
-  if ([engine isEqualToString:@"sensevoice"]) {
-    NSString *modelFile = [SherpaTranscriber senseVoiceModelFileForKey:modelKey];
-    NSString *modelPath = [modelDir stringByAppendingPathComponent:modelFile];
-    NSString *tokensPath = [modelDir stringByAppendingPathComponent:@"tokens.txt"];
-    if (![fm fileExistsAtPath:modelPath] || ![fm fileExistsAtPath:tokensPath]) {
-      if (errorOut) {
-        *errorOut = [NSString
-            stringWithFormat:@"Missing SenseVoice files at %@ (need %@ and tokens.txt)",
-                             modelDir, modelFile];
-      }
-      return NO;
-    }
-    if (![SherpaTranscriber looksLikeTokensFileAtPath:tokensPath]) {
-      if (errorOut) {
-        *errorOut = [NSString
-            stringWithFormat:@"Corrupt tokens file at %@ (size=%lld). Please delete %@ and re-download the model.",
-                             tokensPath, [SherpaTranscriber fileSizeAtPath:tokensPath], modelDir];
-      }
-      return NO;
-    }
-    if (![SherpaTranscriber looksLikeOnnxFileAtPath:modelPath
-                                          minBytes:50LL * 1024LL * 1024LL]) {
-      if (errorOut) {
-        *errorOut = [NSString
-            stringWithFormat:@"Corrupt or incomplete model file at %@ (size=%lld). Please delete %@ and re-download the model.",
-                             modelPath, [SherpaTranscriber fileSizeAtPath:modelPath], modelDir];
-      }
-      return NO;
-    }
-    modelStr = [modelPath UTF8String];
-    tokensStr = [tokensPath UTF8String];
-    config.model_config.tokens = tokensStr.c_str();
-    config.model_config.sense_voice.model = modelStr.c_str();
-    config.model_config.sense_voice.language = langStr.c_str();
-    config.model_config.sense_voice.use_itn = 1;
-  } else if ([engine isEqualToString:@"whisper"]) {
-    NSString *prefix = [SherpaTranscriber whisperPrefixForKey:modelKey];
-    if (!prefix) {
-      if (errorOut) *errorOut = [NSString stringWithFormat:@"Unknown whisper key %@", modelKey];
-      return NO;
-    }
-    NSString *enc =
-        [modelDir stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-encoder.int8.onnx", prefix]];
-    NSString *dec =
-        [modelDir stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-decoder.int8.onnx", prefix]];
-    NSString *tokens =
-        [modelDir stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-tokens.txt", prefix]];
-    if (![fm fileExistsAtPath:enc] || ![fm fileExistsAtPath:dec] || ![fm fileExistsAtPath:tokens]) {
-      if (errorOut) {
-        *errorOut = [NSString
-            stringWithFormat:@"Missing Whisper files in %@ (need %@-encoder.int8.onnx, decoder, tokens)",
-                             modelDir, prefix];
-      }
-      return NO;
-    }
-    if (![SherpaTranscriber looksLikeTokensFileAtPath:tokens]) {
-      if (errorOut) {
-        *errorOut = [NSString
-            stringWithFormat:@"Corrupt tokens file at %@ (size=%lld). Please delete %@ and re-download the model.",
-                             tokens, [SherpaTranscriber fileSizeAtPath:tokens], modelDir];
-      }
-      return NO;
-    }
-    if (![SherpaTranscriber looksLikeOnnxFileAtPath:enc minBytes:1LL * 1024LL * 1024LL] ||
-        ![SherpaTranscriber looksLikeOnnxFileAtPath:dec minBytes:1LL * 1024LL * 1024LL]) {
-      if (errorOut) {
-        *errorOut = [NSString
-            stringWithFormat:@"Corrupt or incomplete Whisper model in %@. Please delete %@ and re-download the model.",
-                             modelDir, modelDir];
-      }
-      return NO;
-    }
-    encoderStr = [enc UTF8String];
-    decoderStr = [dec UTF8String];
-    tokensStr = [tokens UTF8String];
-
-    // Whisper expects ISO-639-1 language code; pass empty for auto-detect.
-    if ([language isEqualToString:@"auto"]) {
-      langStr.clear();
-    }
-    config.model_config.tokens = tokensStr.c_str();
-    config.model_config.whisper.encoder = encoderStr.c_str();
-    config.model_config.whisper.decoder = decoderStr.c_str();
-    config.model_config.whisper.language = langStr.c_str();
-    config.model_config.whisper.task = taskStr.c_str();
-    config.model_config.whisper.tail_paddings = 0;
-  } else {
-    if (errorOut) *errorOut = [NSString stringWithFormat:@"Unsupported engine %@", engine];
-    return NO;
-  }
-
-  STLog(@"creating recognizer engine=%@ modelKey=%@ language=%@", engine, modelKey, language);
-  const SherpaOnnxOfflineRecognizer *r = _api.CreateOfflineRecognizer(&config);
-  if (!r) {
-    if (errorOut) *errorOut = @"SherpaOnnxCreateOfflineRecognizer returned NULL";
-    return NO;
-  }
-  _recognizer = r;
-  self.cachedKey = cacheKey;
-  STLog(@"recognizer ready (%@)", cacheKey);
+  self.helperTask = task;
+  self.helperStdin = stdinPipe;
+  self.helperStdout = stdoutPipe;
+  self.helperStderr = stderrPipe;
+  self.helperStdoutBuffer = [NSMutableData data];
+  STLog(@"sherpa helper launched pid=%d", task.processIdentifier);
   return YES;
+}
+
+- (NSDictionary *)sendRequest:(NSDictionary *)request errorOut:(NSString **)errorOut {
+  NSError *jsonError = nil;
+  NSData *payload = [NSJSONSerialization dataWithJSONObject:request options:0 error:&jsonError];
+  if (!payload) {
+    if (errorOut) {
+      *errorOut = [NSString stringWithFormat:@"request encode failed: %@",
+                                             jsonError.localizedDescription ?: @""];
+    }
+    return nil;
+  }
+
+  NSMutableData *line = [payload mutableCopy];
+  [line appendBytes:"\n" length:1];
+
+  @try {
+    [self.helperStdin.fileHandleForWriting writeData:line];
+  } @catch (NSException *exception) {
+    if (errorOut) {
+      *errorOut = [NSString stringWithFormat:@"helper stdin write failed: %@",
+                                             exception.reason ?: exception.name];
+    }
+    [self killHelperWithReason:@"stdin write failed"];
+    return nil;
+  }
+
+  NSFileHandle *output = self.helperStdout.fileHandleForReading;
+  NSMutableData *buffer = self.helperStdoutBuffer ?: [NSMutableData data];
+  self.helperStdoutBuffer = buffer;
+
+  while (YES) {
+    const uint8_t *bytes = (const uint8_t *)buffer.bytes;
+    NSUInteger newlineIndex = NSNotFound;
+    for (NSUInteger i = 0; i < buffer.length; i++) {
+      if (bytes[i] == '\n') {
+        newlineIndex = i;
+        break;
+      }
+    }
+
+    if (newlineIndex != NSNotFound) {
+      NSData *jsonData = [buffer subdataWithRange:NSMakeRange(0, newlineIndex)];
+      [buffer replaceBytesInRange:NSMakeRange(0, newlineIndex + 1) withBytes:NULL length:0];
+      NSError *parseError = nil;
+      id obj = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&parseError];
+      if (![obj isKindOfClass:NSDictionary.class]) {
+        if (errorOut) {
+          *errorOut = [NSString stringWithFormat:@"helper response parse failed: %@",
+                                                 parseError.localizedDescription ?: @"non-dict response"];
+        }
+        return nil;
+      }
+      return obj;
+    }
+
+    NSData *chunk = nil;
+    @try {
+      chunk = [output availableData];
+    } @catch (NSException *exception) {
+      if (errorOut) {
+        *errorOut = [NSString stringWithFormat:@"helper stdout read failed: %@",
+                                               exception.reason ?: exception.name];
+      }
+      [self killHelperWithReason:@"stdout read failed"];
+      return nil;
+    }
+
+    if (chunk.length == 0) {
+      if (errorOut) *errorOut = @"helper closed stdout unexpectedly";
+      [self killHelperWithReason:@"helper EOF"];
+      return nil;
+    }
+    [buffer appendData:chunk];
+  }
+}
+
+#pragma mark - Idle release
+
+- (void)cancelIdleReleaseTimer {
+  if (self.idleReleaseTimer) {
+    dispatch_source_cancel(self.idleReleaseTimer);
+    self.idleReleaseTimer = nil;
+  }
+}
+
+- (void)scheduleIdleReleaseIfNeeded {
+  [self cancelIdleReleaseTimer];
+  if (self.activeTranscriptions > 0 || ![self isHelperAlive]) {
+    return;
+  }
+
+  double timeoutMs = self.idleReleaseTimeoutMs;
+  if (timeoutMs <= 0) {
+    return;
+  }
+
+  dispatch_queue_t queue = [self methodQueue];
+  dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
+  int64_t delayNs = (int64_t)(timeoutMs * (double)NSEC_PER_MSEC);
+  dispatch_source_set_timer(timer,
+                            dispatch_time(DISPATCH_TIME_NOW, delayNs),
+                            DISPATCH_TIME_FOREVER,
+                            5 * NSEC_PER_SEC);
+
+  __weak SherpaTranscriber *weakSelf = self;
+  dispatch_source_set_event_handler(timer, ^{
+    SherpaTranscriber *strongSelf = weakSelf;
+    if (!strongSelf) return;
+    if (strongSelf.activeTranscriptions == 0) {
+      [strongSelf killHelperWithReason:@"idle timeout"];
+    }
+  });
+
+  self.idleReleaseTimer = timer;
+  dispatch_resume(timer);
+  STLog(@"scheduled Sherpa helper kill in %.0f ms", timeoutMs);
 }
 
 #pragma mark - JS API
@@ -587,73 +431,72 @@ RCT_EXPORT_METHOD(transcribeFile:(NSString *)filePath
            [NSString stringWithFormat:@"Audio file not found: %@", filePath], nil);
     return;
   }
+  if (![SherpaTranscriber isRuntimeReadyAtPath]) {
+    reject(@"sherpa_runtime_missing",
+           [NSString stringWithFormat:
+                @"Sherpa runtime is not downloaded. Please download a model in ASR settings first. Runtime path: %@",
+                [SherpaTranscriber runtimeCurrentDir]],
+           nil);
+    return;
+  }
 
   self.activeTranscriptions += 1;
   [self cancelIdleReleaseTimer];
-  __block BOOL finishedTranscription = NO;
-  void (^finishTranscription)(void) = ^{
-    if (finishedTranscription) {
-      return;
-    }
-    finishedTranscription = YES;
-    if (self.activeTranscriptions > 0) {
-      self.activeTranscriptions -= 1;
-    }
+  __block BOOL finished = NO;
+  void (^finish)(void) = ^{
+    if (finished) return;
+    finished = YES;
+    if (self.activeTranscriptions > 0) self.activeTranscriptions -= 1;
     [self scheduleIdleReleaseIfNeeded];
   };
 
   NSString *normalizedLang = [SherpaTranscriber normalizeLanguage:language forEngine:engine];
-  STLog(@"transcribeFile engine=%@ modelKey=%@ lang=%@ file=%@", engine, modelKey, normalizedLang,
-        filePath);
+  STLog(@"transcribeFile engine=%@ modelKey=%@ lang=%@ file=%@",
+        engine, modelKey, normalizedLang, filePath);
 
-  NSString *err = nil;
-  if (![self ensureRecognizerForEngine:engine
-                              modelKey:modelKey
-                              language:normalizedLang
-                                 error:&err]) {
-    STLog(@"ensureRecognizer failed: %@", err);
-    finishTranscription();
-    reject(@"sherpa_init_failed", err ?: @"Failed to initialize recognizer.", nil);
+  NSString *startError = nil;
+  if (![self startHelperWithError:&startError]) {
+    STLog(@"start helper failed: %@", startError);
+    finish();
+    reject(@"sherpa_helper_start_failed",
+           startError ?: @"Failed to start sherpa helper.", nil);
     return;
   }
 
-  const SherpaOnnxWave *wave = _api.ReadWave([filePath UTF8String]);
-  if (!wave) {
-    finishTranscription();
-    reject(@"sherpa_wave_read_failed",
-           [NSString stringWithFormat:@"Failed to read WAV: %@", filePath], nil);
+  NSDictionary *request = @{
+    @"cmd": @"transcribe",
+    @"runtimeDir": [SherpaTranscriber runtimeCurrentDir],
+    @"engine": engine ?: @"",
+    @"modelKey": modelKey ?: @"",
+    @"modelDir": [SherpaTranscriber modelDirForKey:modelKey],
+    @"language": normalizedLang,
+    @"filePath": filePath,
+  };
+
+  NSString *requestError = nil;
+  NSDictionary *response = [self sendRequest:request errorOut:&requestError];
+  if (!response) {
+    finish();
+    reject(@"sherpa_helper_failed",
+           requestError ?: @"Sherpa helper communication failed.", nil);
     return;
   }
 
-  const SherpaOnnxOfflineStream *stream = _api.CreateOfflineStream(_recognizer);
-  if (!stream) {
-    _api.FreeWave(wave);
-    finishTranscription();
-    reject(@"sherpa_stream_failed", @"Failed to create offline stream.", nil);
+  if (![response[@"ok"] boolValue]) {
+    NSString *errorText = response[@"error"];
+    finish();
+    reject(@"sherpa_helper_error",
+           errorText.length > 0 ? errorText : @"Sherpa helper reported an error.", nil);
     return;
   }
 
-  if ([engine isEqualToString:@"sensevoice"]) {
-    _api.OfflineStreamSetOption(stream, "language", [normalizedLang UTF8String]);
-  }
-
-  _api.AcceptWaveformOffline(stream, wave->sample_rate, wave->samples, wave->num_samples);
-  _api.DecodeOfflineStream(_recognizer, stream);
-
-  const SherpaOnnxOfflineRecognizerResult *result = _api.GetOfflineStreamResult(stream);
-  NSString *text = @"";
-  if (result && result->text) {
-    text = [NSString stringWithUTF8String:result->text] ?: @"";
+  NSString *text = response[@"text"];
+  if (![text isKindOfClass:NSString.class]) {
+    text = @"";
   }
   STLog(@"transcribed text length=%lu", (unsigned long)text.length);
 
-  if (result) {
-    _api.DestroyOfflineRecognizerResult(result);
-  }
-  _api.DestroyOfflineStream(stream);
-  _api.FreeWave(wave);
-
-  finishTranscription();
+  finish();
   resolve(text);
 }
 

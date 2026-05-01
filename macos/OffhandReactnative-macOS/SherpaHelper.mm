@@ -146,6 +146,50 @@ static NSString *SenseVoiceModelFile(NSString *modelKey) {
   return @"model.int8.onnx";
 }
 
+static long long FileSizeAtPath(NSString *path) {
+  NSDictionary *attrs = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+  if (!attrs) return -1;
+  return [attrs[NSFileSize] longLongValue];
+}
+
+static BOOL LooksLikeTokensFile(NSString *path) {
+  long long size = FileSizeAtPath(path);
+  if (size <= 0 || size > 50LL * 1024LL * 1024LL) return NO;
+
+  NSFileHandle *fh = [NSFileHandle fileHandleForReadingAtPath:path];
+  if (!fh) return NO;
+  NSData *head = [fh readDataOfLength:512];
+  [fh closeFile];
+  if (head.length == 0) return NO;
+
+  const uint8_t *bytes = (const uint8_t *)head.bytes;
+  for (NSUInteger i = 0; i < head.length; i++) {
+    uint8_t b = bytes[i];
+    if (b == 0) return NO;
+    if (b < 0x09) return NO;
+    if (b > 0x0D && b < 0x20) return NO;
+  }
+  return YES;
+}
+
+static BOOL LooksLikeOnnxFile(NSString *path, long long minBytes) {
+  long long size = FileSizeAtPath(path);
+  if (size < minBytes) return NO;
+
+  NSFileHandle *fh = [NSFileHandle fileHandleForReadingAtPath:path];
+  if (!fh) return NO;
+  NSData *head = [fh readDataOfLength:32];
+  [fh closeFile];
+  if (head.length < 8) return NO;
+
+  const char *needle = "onnx";
+  for (NSInteger i = 0; i + 4 <= (NSInteger)head.length; i++) {
+    if (memcmp((const char *)head.bytes + i, needle, 4) == 0) return YES;
+  }
+  uint8_t first = ((const uint8_t *)head.bytes)[0];
+  return first == 0x08 || first == 0x12;
+}
+
 static BOOL EnsureRecognizer(NSString *engine,
                              NSString *modelKey,
                              NSString *modelDir,
@@ -197,6 +241,22 @@ static BOOL EnsureRecognizer(NSString *engine,
       }
       return NO;
     }
+    if (!LooksLikeTokensFile(tokensPath)) {
+      if (errorOut) {
+        *errorOut = [NSString stringWithFormat:
+            @"Corrupt tokens file at %@ (size=%lld). Please delete %@ and re-download the model.",
+            tokensPath, FileSizeAtPath(tokensPath), modelDir];
+      }
+      return NO;
+    }
+    if (!LooksLikeOnnxFile(modelPath, 50LL * 1024LL * 1024LL)) {
+      if (errorOut) {
+        *errorOut = [NSString stringWithFormat:
+            @"Corrupt or incomplete model file at %@ (size=%lld). Please delete %@ and re-download the model.",
+            modelPath, FileSizeAtPath(modelPath), modelDir];
+      }
+      return NO;
+    }
     modelStr = [modelPath UTF8String];
     tokensStr = [tokensPath UTF8String];
     config.model_config.tokens = tokensStr.c_str();
@@ -218,6 +278,23 @@ static BOOL EnsureRecognizer(NSString *engine,
     if (![fm fileExistsAtPath:enc] || ![fm fileExistsAtPath:dec] || ![fm fileExistsAtPath:tok]) {
       if (errorOut) {
         *errorOut = [NSString stringWithFormat:@"missing Whisper files in %@", modelDir];
+      }
+      return NO;
+    }
+    if (!LooksLikeTokensFile(tok)) {
+      if (errorOut) {
+        *errorOut = [NSString stringWithFormat:
+            @"Corrupt tokens file at %@ (size=%lld). Please delete %@ and re-download the model.",
+            tok, FileSizeAtPath(tok), modelDir];
+      }
+      return NO;
+    }
+    if (!LooksLikeOnnxFile(enc, 1LL * 1024LL * 1024LL) ||
+        !LooksLikeOnnxFile(dec, 1LL * 1024LL * 1024LL)) {
+      if (errorOut) {
+        *errorOut = [NSString stringWithFormat:
+            @"Corrupt or incomplete Whisper model in %@. Please delete %@ and re-download the model.",
+            modelDir, modelDir];
       }
       return NO;
     }
