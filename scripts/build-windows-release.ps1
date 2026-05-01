@@ -373,6 +373,24 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  $WindowsTextInputStateSource = Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\Composition\TextInput\WindowsTextInputState.cpp"
+  if (Test-Path $WindowsTextInputStateSource) {
+    $WindowsTextInputStateText = Get-Content $WindowsTextInputStateSource -Raw
+    $UpdatedWindowsTextInputStateText = [regex]::Replace(
+      $WindowsTextInputStateText,
+      '(?m)^#include <react/renderer/components/text/platform/android/react/renderer/components/text/ParagraphState\.h>.*\r?\n',
+      ''
+    )
+
+    if ($UpdatedWindowsTextInputStateText -ne $WindowsTextInputStateText) {
+      Set-Content -Path $WindowsTextInputStateSource -Value $UpdatedWindowsTextInputStateText -NoNewline
+      Write-Host "Removed unused Android ParagraphState include: $WindowsTextInputStateSource"
+      $PatchedAny = $true
+    } else {
+      Write-Host "Android ParagraphState include patch was not needed: $WindowsTextInputStateSource"
+    }
+  }
+
   if (!$PatchedAny) {
     Write-Host "No Windows React Native source files required patching."
   }
