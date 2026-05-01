@@ -96,6 +96,16 @@ PY
 
 build_release_app() {
   log_step "xcodebuild Release"
+  local code_sign_args=()
+  if [[ "${CI:-}" == "true" ]] || [[ "${OFFHAND_DISABLE_CODE_SIGNING:-0}" == "1" ]]; then
+    echo "CI/unsigned release build detected; disabling macOS code signing."
+    code_sign_args=(
+      CODE_SIGN_IDENTITY=-
+      CODE_SIGNING_ALLOWED=NO
+      CODE_SIGNING_REQUIRED=NO
+    )
+  fi
+
   (
     cd "$MACOS_DIR"
     xcodebuild \
@@ -104,7 +114,8 @@ build_release_app() {
       -configuration Release \
       -destination "platform=macOS" \
       -derivedDataPath build \
-      build
+      build \
+      "${code_sign_args[@]}"
   )
 
   if [[ ! -d "$APP_PATH" ]]; then
