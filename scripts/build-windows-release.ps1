@@ -371,6 +371,125 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  $HermesRuntimeTargetDelegateHeader = Join-Path $RootDir "node_modules\react-native-windows\Shared\Hermes\HermesRuntimeTargetDelegate.h"
+  if (Test-Path $HermesRuntimeTargetDelegateHeader) {
+    $HermesRuntimeTargetDelegateHeaderText = Get-Content $HermesRuntimeTargetDelegateHeader -Raw
+    $UpdatedHermesRuntimeTargetDelegateHeaderText = $HermesRuntimeTargetDelegateHeaderText
+
+    if (!$UpdatedHermesRuntimeTargetDelegateHeaderText.Contains("#include <folly/dynamic.h>")) {
+      $UpdatedHermesRuntimeTargetDelegateHeaderText = $UpdatedHermesRuntimeTargetDelegateHeaderText.Replace(
+        "#include <ReactCommon/RuntimeExecutor.h>",
+        "#include <ReactCommon/RuntimeExecutor.h>" + [Environment]::NewLine + "#include <folly/dynamic.h>"
+      ).Replace(
+        "#include <ReactCommon/RuntimeExecutor.h>`n",
+        "#include <ReactCommon/RuntimeExecutor.h>`n#include <folly/dynamic.h>`n"
+      )
+    }
+
+    if (!$UpdatedHermesRuntimeTargetDelegateHeaderText.Contains("#include <optional>")) {
+      $UpdatedHermesRuntimeTargetDelegateHeaderText = $UpdatedHermesRuntimeTargetDelegateHeaderText.Replace(
+        "#include <memory>",
+        "#include <memory>" + [Environment]::NewLine + "#include <optional>"
+      ).Replace(
+        "#include <memory>`n",
+        "#include <memory>`n#include <optional>`n"
+      )
+    }
+
+    $SerializeStackTraceDeclarationNeedle = @(
+      "  std::unique_ptr<facebook::react::jsinspector_modern::StackTrace> captureStackTrace(",
+      "      facebook::jsi::Runtime &runtime,",
+      "      size_t framesToSkip) override;",
+      "",
+      "  /**",
+      "   * Start sampling profiler.",
+      "   */"
+    ) -join [Environment]::NewLine
+    $SerializeStackTraceDeclarationReplacement = @(
+      "  std::unique_ptr<facebook::react::jsinspector_modern::StackTrace> captureStackTrace(",
+      "      facebook::jsi::Runtime &runtime,",
+      "      size_t framesToSkip) override;",
+      "",
+      "  std::optional<folly::dynamic> serializeStackTrace(",
+      "      const facebook::react::jsinspector_modern::StackTrace &stackTrace) override;",
+      "",
+      "  /**",
+      "   * Start sampling profiler.",
+      "   */"
+    ) -join [Environment]::NewLine
+    $UpdatedHermesRuntimeTargetDelegateHeaderText = $UpdatedHermesRuntimeTargetDelegateHeaderText.Replace(
+      $SerializeStackTraceDeclarationNeedle,
+      $SerializeStackTraceDeclarationReplacement
+    ).Replace(
+      ($SerializeStackTraceDeclarationNeedle -replace "`r`n", "`n"),
+      ($SerializeStackTraceDeclarationReplacement -replace "`r`n", "`n")
+    )
+
+    if ($UpdatedHermesRuntimeTargetDelegateHeaderText -ne $HermesRuntimeTargetDelegateHeaderText) {
+      Set-Content -Path $HermesRuntimeTargetDelegateHeader -Value $UpdatedHermesRuntimeTargetDelegateHeaderText -NoNewline
+      Write-Host "Applied HermesRuntimeTargetDelegate serializeStackTrace header compatibility patch: $HermesRuntimeTargetDelegateHeader"
+      $PatchedAny = $true
+    } else {
+      Write-Host "HermesRuntimeTargetDelegate serializeStackTrace header compatibility patch was not needed: $HermesRuntimeTargetDelegateHeader"
+    }
+  }
+
+  $HermesRuntimeTargetDelegateSource = Join-Path $RootDir "node_modules\react-native-windows\Shared\Hermes\HermesRuntimeTargetDelegate.cpp"
+  if (Test-Path $HermesRuntimeTargetDelegateSource) {
+    $HermesRuntimeTargetDelegateSourceText = Get-Content $HermesRuntimeTargetDelegateSource -Raw
+    $UpdatedHermesRuntimeTargetDelegateSourceText = $HermesRuntimeTargetDelegateSourceText
+
+    if (!$UpdatedHermesRuntimeTargetDelegateSourceText.Contains("#include <optional>")) {
+      $UpdatedHermesRuntimeTargetDelegateSourceText = $UpdatedHermesRuntimeTargetDelegateSourceText.Replace(
+        "#include <jsinspector-modern/RuntimeTarget.h>",
+        "#include <jsinspector-modern/RuntimeTarget.h>" + [Environment]::NewLine + "#include <optional>"
+      ).Replace(
+        "#include <jsinspector-modern/RuntimeTarget.h>`n",
+        "#include <jsinspector-modern/RuntimeTarget.h>`n#include <optional>`n"
+      )
+    }
+
+    $SerializeStackTraceDefinitionNeedle = @(
+      "std::unique_ptr<StackTrace> HermesRuntimeTargetDelegate::captureStackTrace(",
+      "    facebook::jsi::Runtime & /*runtime*/,",
+      "    size_t /*framesToSkip*/) {",
+      "  return std::make_unique<HermesStackTraceWrapper>(",
+      "      HermesInspectorApi::captureStackTrace(hermesRuntimeHolder_->getHermesRuntime()));",
+      "}",
+      "",
+      "void HermesRuntimeTargetDelegate::enableSamplingProfiler() {"
+    ) -join [Environment]::NewLine
+    $SerializeStackTraceDefinitionReplacement = @(
+      "std::unique_ptr<StackTrace> HermesRuntimeTargetDelegate::captureStackTrace(",
+      "    facebook::jsi::Runtime & /*runtime*/,",
+      "    size_t /*framesToSkip*/) {",
+      "  return std::make_unique<HermesStackTraceWrapper>(",
+      "      HermesInspectorApi::captureStackTrace(hermesRuntimeHolder_->getHermesRuntime()));",
+      "}",
+      "",
+      "std::optional<folly::dynamic> HermesRuntimeTargetDelegate::serializeStackTrace(const StackTrace & /*stackTrace*/) {",
+      "  return std::nullopt;",
+      "}",
+      "",
+      "void HermesRuntimeTargetDelegate::enableSamplingProfiler() {"
+    ) -join [Environment]::NewLine
+    $UpdatedHermesRuntimeTargetDelegateSourceText = $UpdatedHermesRuntimeTargetDelegateSourceText.Replace(
+      $SerializeStackTraceDefinitionNeedle,
+      $SerializeStackTraceDefinitionReplacement
+    ).Replace(
+      ($SerializeStackTraceDefinitionNeedle -replace "`r`n", "`n"),
+      ($SerializeStackTraceDefinitionReplacement -replace "`r`n", "`n")
+    )
+
+    if ($UpdatedHermesRuntimeTargetDelegateSourceText -ne $HermesRuntimeTargetDelegateSourceText) {
+      Set-Content -Path $HermesRuntimeTargetDelegateSource -Value $UpdatedHermesRuntimeTargetDelegateSourceText -NoNewline
+      Write-Host "Applied HermesRuntimeTargetDelegate serializeStackTrace source compatibility patch: $HermesRuntimeTargetDelegateSource"
+      $PatchedAny = $true
+    } else {
+      Write-Host "HermesRuntimeTargetDelegate serializeStackTrace source compatibility patch was not needed: $HermesRuntimeTargetDelegateSource"
+    }
+  }
+
   $MapBufferSource = Join-Path $RootDir "node_modules\react-native\ReactCommon\react\renderer\mapbuffer\MapBuffer.cpp"
   if (Test-Path $MapBufferSource) {
     $MapBufferText = Get-Content $MapBufferSource -Raw
