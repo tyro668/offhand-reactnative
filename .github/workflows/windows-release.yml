@@ -1,4 +1,4 @@
-name: Desktop Release Build
+name: Windows Release Build
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - ".github/workflows/desktop-release.yml"
+      - ".github/workflows/windows-release.yml"
       - "App.tsx"
       - "index.js"
       - "package.json"
@@ -16,17 +16,16 @@ on:
       - "react-native.config.js"
       - "src/**"
       - "assets/**"
-      - "macos/**"
       - "windows/**"
-      - "scripts/**"
+      - "scripts/build-windows-release.ps1"
 
 permissions:
   contents: read
 
 jobs:
-  build-macos:
-    name: Build macOS app
-    runs-on: macos-15
+  build-windows:
+    name: Build Windows app
+    runs-on: windows-2022
     timeout-minutes: 90
 
     steps:
@@ -39,28 +38,24 @@ jobs:
           node-version: "22.11.0"
           cache: npm
 
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
       - name: Install JS dependencies
         run: npm ci --legacy-peer-deps
-
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app
-
-      - name: Install CocoaPods dependencies
-        run: |
-          cd macos
-          pod install
 
       - name: TypeScript check
         run: npx tsc --noEmit --pretty false
 
-      - name: Build macOS release
-        run: npm run macos:release
+      - name: Build Windows release
+        shell: pwsh
+        run: npm run windows:release
 
-      - name: Upload macOS artifacts
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: offhand-macos-release
+          name: offhand-windows-release
           path: |
-            dist/*.zip
-            macos/build/Build/Products/Release/*.app
+            dist/windows/*.zip
+            windows/OffhandReactnative.Package/AppPackages/**
           if-no-files-found: error
