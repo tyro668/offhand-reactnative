@@ -112,6 +112,110 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  $FabricUIManagerHeader = Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\FabricUIManagerModule.h"
+  if (Test-Path $FabricUIManagerHeader) {
+    $FabricUIManagerHeaderText = Get-Content $FabricUIManagerHeader -Raw
+    $HeaderNeedle = @(
+      "  virtual void schedulerShouldRenderTransactions(",
+      "      const std::shared_ptr<const facebook::react::MountingCoordinator> &mountingCoordinator) override;",
+      "  virtual void schedulerDidRequestPreliminaryViewAllocation(const facebook::react::ShadowNode &shadowView) override;"
+    ) -join [Environment]::NewLine
+    $HeaderReplacement = @(
+      "  virtual void schedulerShouldRenderTransactions(",
+      "      const std::shared_ptr<const facebook::react::MountingCoordinator> &mountingCoordinator) override;",
+      "  virtual void schedulerShouldMergeReactRevision(facebook::react::SurfaceId surfaceId) override;",
+      "  virtual void schedulerDidRequestPreliminaryViewAllocation(const facebook::react::ShadowNode &shadowView) override;"
+    ) -join [Environment]::NewLine
+    $UpdatedFabricUIManagerHeaderText = $FabricUIManagerHeaderText.Replace($HeaderNeedle, $HeaderReplacement)
+    if ($UpdatedFabricUIManagerHeaderText -eq $FabricUIManagerHeaderText) {
+      $UpdatedFabricUIManagerHeaderText = $FabricUIManagerHeaderText.Replace(
+        ($HeaderNeedle -replace "`r`n", "`n"),
+        ($HeaderReplacement -replace "`r`n", "`n")
+      )
+    }
+
+    if ($UpdatedFabricUIManagerHeaderText -ne $FabricUIManagerHeaderText) {
+      Set-Content -Path $FabricUIManagerHeader -Value $UpdatedFabricUIManagerHeaderText -NoNewline
+      Write-Host "Applied FabricUIManager SchedulerDelegate compatibility patch: $FabricUIManagerHeader"
+      $PatchedAny = $true
+    } else {
+      Write-Host "FabricUIManager SchedulerDelegate compatibility patch was not needed: $FabricUIManagerHeader"
+    }
+  }
+
+  $FabricUIManagerSource = Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\FabricUIManagerModule.cpp"
+  if (Test-Path $FabricUIManagerSource) {
+    $FabricUIManagerSourceText = Get-Content $FabricUIManagerSource -Raw
+    $SourceNeedle = @(
+      "void FabricUIManager::schedulerShouldRenderTransactions(",
+      "    const std::shared_ptr<const facebook::react::MountingCoordinator> &mountingCoordinator) {",
+      "  if (m_context.UIDispatcher().HasThreadAccess()) {",
+      "    initiateTransaction(mountingCoordinator);",
+      "  } else {",
+      "    m_context.UIDispatcher().Post(",
+      "        [mountingCoordinator, self = shared_from_this()]() { self->initiateTransaction(mountingCoordinator); });",
+      "  }",
+      "}",
+      "",
+      "void FabricUIManager::schedulerDidRequestPreliminaryViewAllocation(const facebook::react::ShadowNode &shadowView) {"
+    ) -join [Environment]::NewLine
+    $SourceReplacement = @(
+      "void FabricUIManager::schedulerShouldRenderTransactions(",
+      "    const std::shared_ptr<const facebook::react::MountingCoordinator> &mountingCoordinator) {",
+      "  if (m_context.UIDispatcher().HasThreadAccess()) {",
+      "    initiateTransaction(mountingCoordinator);",
+      "  } else {",
+      "    m_context.UIDispatcher().Post(",
+      "        [mountingCoordinator, self = shared_from_this()]() { self->initiateTransaction(mountingCoordinator); });",
+      "  }",
+      "}",
+      "",
+      "void FabricUIManager::schedulerShouldMergeReactRevision(facebook::react::SurfaceId /*surfaceId*/) {}",
+      "",
+      "void FabricUIManager::schedulerDidRequestPreliminaryViewAllocation(const facebook::react::ShadowNode &shadowView) {"
+    ) -join [Environment]::NewLine
+    $UpdatedFabricUIManagerSourceText = $FabricUIManagerSourceText.Replace($SourceNeedle, $SourceReplacement)
+    if ($UpdatedFabricUIManagerSourceText -eq $FabricUIManagerSourceText) {
+      $UpdatedFabricUIManagerSourceText = $FabricUIManagerSourceText.Replace(
+        ($SourceNeedle -replace "`r`n", "`n"),
+        ($SourceReplacement -replace "`r`n", "`n")
+      )
+    }
+
+    if ($UpdatedFabricUIManagerSourceText -ne $FabricUIManagerSourceText) {
+      Set-Content -Path $FabricUIManagerSource -Value $UpdatedFabricUIManagerSourceText -NoNewline
+      Write-Host "Applied FabricUIManager SchedulerDelegate source compatibility patch: $FabricUIManagerSource"
+      $PatchedAny = $true
+    } else {
+      Write-Host "FabricUIManager SchedulerDelegate source compatibility patch was not needed: $FabricUIManagerSource"
+    }
+  }
+
+  $AbiDescriptorSources = @(
+    (Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\AbiComponentDescriptor.cpp"),
+    (Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\AbiViewComponentDescriptor.h")
+  )
+
+  foreach ($AbiDescriptorSource in $AbiDescriptorSources) {
+    if (!(Test-Path $AbiDescriptorSource)) {
+      continue
+    }
+
+    $AbiDescriptorText = Get-Content $AbiDescriptorSource -Raw
+    $UpdatedAbiDescriptorText = $AbiDescriptorText.Replace(
+      'std::make_shared<const ConcreteEventEmitter>(',
+      'std::make_shared<ConcreteEventEmitter>('
+    )
+
+    if ($UpdatedAbiDescriptorText -ne $AbiDescriptorText) {
+      Set-Content -Path $AbiDescriptorSource -Value $UpdatedAbiDescriptorText -NoNewline
+      Write-Host "Applied ABI event emitter compatibility patch: $AbiDescriptorSource"
+      $PatchedAny = $true
+    } else {
+      Write-Host "ABI event emitter compatibility patch was not needed: $AbiDescriptorSource"
+    }
+  }
+
   $CandidateSources = @(
     (Join-Path $RootDir "node_modules\react-native\ReactCommon\cxxreact\JSIndexedRAMBundle.cpp"),
     (Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\cxxreact\JSIndexedRAMBundle.cpp")
@@ -199,12 +303,15 @@ if ($LASTEXITCODE -ne 0) {
 Write-Step "Build Windows package"
 $MSBuild = Get-MSBuildPath
 $ReactNativeWindowsDir = Join-Path $RootDir "node_modules\react-native-windows"
+$SolutionPath = Join-Path $WindowsDir "OffhandReactnative.sln"
 & $MSBuild $PackageProject `
   /m `
   /restore `
   "/p:Configuration=$Configuration" `
   "/p:Platform=$Platform" `
   "/p:SolutionDir=$WindowsDir\" `
+  "/p:SolutionPath=$SolutionPath" `
+  "/p:SolutionFileName=OffhandReactnative.sln" `
   "/p:ReactNativeWindowsDir=$ReactNativeWindowsDir\" `
   "/p:AppxBundle=Never" `
   "/p:UapAppxPackageBuildMode=SideloadOnly" `
