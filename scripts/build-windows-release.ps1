@@ -354,6 +354,71 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  # React Native 0.85 added a `MeasuredPreparedTextLayout measuredLayout` member
+  # and a 4-arg constructor to the Android variant of ParagraphState. RNW 0.82
+  # picks up that header through its include path but the Windows toolchain
+  # fails to recognise `MeasuredPreparedTextLayout`. Strip the new member and
+  # constructor so the file compiles back to its 0.82-compatible shape.
+  $ParagraphStateAndroidHeader = Join-Path $RootDir "node_modules\react-native\ReactCommon\react\renderer\components\text\platform\android\react\renderer\components\text\ParagraphState.h"
+  if (Test-Path $ParagraphStateAndroidHeader) {
+    $ParagraphStateText = Get-Content $ParagraphStateAndroidHeader -Raw
+    if ($ParagraphStateText.Contains("MeasuredPreparedTextLayout measuredLayout;")) {
+      $ParagraphStateNeedle = @(
+        "  /**",
+        "   * A fully prepared representation of a text layout to mount",
+        "   */",
+        "  MeasuredPreparedTextLayout measuredLayout;",
+        "",
+        "  ParagraphState(",
+        "      AttributedString attributedString,",
+        "      ParagraphAttributes paragraphAttributes,",
+        "      std::weak_ptr<const TextLayoutManager> layoutManager,",
+        "      MeasuredPreparedTextLayout measuredLayout)",
+        "      : attributedString(std::move(attributedString)),",
+        "        paragraphAttributes(std::move(paragraphAttributes)),",
+        "        layoutManager(std::move(layoutManager)),",
+        "        measuredLayout(std::move(measuredLayout))",
+        "  {",
+        "  }",
+        "",
+        "  ParagraphState(",
+        "      AttributedString attributedString,",
+        "      ParagraphAttributes paragraphAttributes,",
+        "      std::weak_ptr<const TextLayoutManager> layoutManager)",
+        "      : ParagraphState(std::move(attributedString), std::move(paragraphAttributes), std::move(layoutManager), {})",
+        "  {",
+        "  }"
+      ) -join [Environment]::NewLine
+      $ParagraphStateReplacement = @(
+        "  ParagraphState(",
+        "      AttributedString attributedString,",
+        "      ParagraphAttributes paragraphAttributes,",
+        "      std::weak_ptr<const TextLayoutManager> layoutManager)",
+        "      : attributedString(std::move(attributedString)),",
+        "        paragraphAttributes(std::move(paragraphAttributes)),",
+        "        layoutManager(std::move(layoutManager))",
+        "  {",
+        "  }"
+      ) -join [Environment]::NewLine
+      $UpdatedParagraphStateText = $ParagraphStateText.Replace($ParagraphStateNeedle, $ParagraphStateReplacement)
+      if ($UpdatedParagraphStateText -eq $ParagraphStateText) {
+        $UpdatedParagraphStateText = $ParagraphStateText.Replace(
+          ($ParagraphStateNeedle -replace "`r`n", "`n"),
+          ($ParagraphStateReplacement -replace "`r`n", "`n")
+        )
+      }
+      if ($UpdatedParagraphStateText -ne $ParagraphStateText) {
+        Set-Content -Path $ParagraphStateAndroidHeader -Value $UpdatedParagraphStateText -NoNewline
+        Write-Host "Applied ParagraphState MeasuredPreparedTextLayout compatibility patch: $ParagraphStateAndroidHeader"
+        $PatchedAny = $true
+      } else {
+        Write-Host "ParagraphState MeasuredPreparedTextLayout compatibility patch was not needed: $ParagraphStateAndroidHeader"
+      }
+    } else {
+      Write-Host "ParagraphState MeasuredPreparedTextLayout compatibility patch is already applied: $ParagraphStateAndroidHeader"
+    }
+  }
+
   if (!$PatchedAny) {
     Write-Host "No Windows React Native source files required patching."
   }
