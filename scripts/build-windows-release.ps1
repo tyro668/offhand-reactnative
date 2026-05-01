@@ -182,6 +182,23 @@ function Repair-ReactNativeWindowsSources {
       )
     }
 
+    $SurfaceHandlerNeedle = @(
+      "    auto surfaceHandler = facebook::react::SurfaceHandler{moduleName, surfaceId};",
+      "    surfaceHandler.setContextContainer(m_scheduler->getContextContainer());",
+      "    m_handlerRegistry.emplace(surfaceId, std::move(surfaceHandler));"
+    ) -join [Environment]::NewLine
+    $SurfaceHandlerReplacement = @(
+      "    auto surfaceHandlerIt = m_handlerRegistry.try_emplace(surfaceId, moduleName, surfaceId).first;",
+      "    surfaceHandlerIt->second.setContextContainer(m_scheduler->getContextContainer());"
+    ) -join [Environment]::NewLine
+    $UpdatedFabricUIManagerSourceText = $UpdatedFabricUIManagerSourceText.Replace(
+      $SurfaceHandlerNeedle,
+      $SurfaceHandlerReplacement
+    ).Replace(
+      ($SurfaceHandlerNeedle -replace "`r`n", "`n"),
+      ($SurfaceHandlerReplacement -replace "`r`n", "`n")
+    )
+
     if ($UpdatedFabricUIManagerSourceText -ne $FabricUIManagerSourceText) {
       Set-Content -Path $FabricUIManagerSource -Value $UpdatedFabricUIManagerSourceText -NoNewline
       Write-Host "Applied FabricUIManager SchedulerDelegate source compatibility patch: $FabricUIManagerSource"
@@ -250,6 +267,108 @@ function Repair-ReactNativeWindowsSources {
     }
 
     Write-Host "React Native Windows RAM bundle compatibility patch was not needed: $BundleSource"
+  }
+
+  $ViewConversionHeaders = @(
+    (Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\react\renderer\components\view\conversions.h"),
+    (Join-Path $RootDir "node_modules\react-native\ReactCommon\react\renderer\components\view\conversions.h")
+  )
+
+  foreach ($ViewConversionHeader in $ViewConversionHeaders) {
+    if (!(Test-Path $ViewConversionHeader)) {
+      continue
+    }
+
+    $ViewConversionText = Get-Content $ViewConversionHeader -Raw
+    $UpdatedViewConversionText = $ViewConversionText
+
+    $StdexceptIncludeNeedle = "#include <optional>" + [Environment]::NewLine + "#include <string>"
+    $StdexceptIncludeReplacement = "#include <optional>" + [Environment]::NewLine + "#include <stdexcept>" + [Environment]::NewLine + "#include <string>"
+    if (!$UpdatedViewConversionText.Contains("#include <stdexcept>")) {
+      $UpdatedViewConversionText = $UpdatedViewConversionText.Replace(
+        $StdexceptIncludeNeedle,
+        $StdexceptIncludeReplacement
+      ).Replace(
+        ($StdexceptIncludeNeedle -replace "`r`n", "`n"),
+        ($StdexceptIncludeReplacement -replace "`r`n", "`n")
+      )
+    }
+
+    $GradientHelper = @(
+      "inline GradientKeyword parseGradientKeyword(const std::string &keyword) {",
+      "  if (keyword == ""to top right"") {",
+      "    return GradientKeyword::ToTopRight;",
+      "  } else if (keyword == ""to bottom right"") {",
+      "    return GradientKeyword::ToBottomRight;",
+      "  } else if (keyword == ""to top left"") {",
+      "    return GradientKeyword::ToTopLeft;",
+      "  } else if (keyword == ""to bottom left"") {",
+      "    return GradientKeyword::ToBottomLeft;",
+      "  }",
+      "",
+      "  throw std::invalid_argument(""Invalid gradient keyword: "" + keyword);",
+      "}"
+    ) -join [Environment]::NewLine
+
+    if ($UpdatedViewConversionText.Contains("parseGradientKeyword((std::string)(valueIt->second))") -and
+        !$UpdatedViewConversionText.Contains("inline GradientKeyword parseGradientKeyword")) {
+      $NamespaceNeedle = "namespace facebook::react {" + [Environment]::NewLine
+      $UpdatedViewConversionText = $UpdatedViewConversionText.Replace(
+        $NamespaceNeedle,
+        $NamespaceNeedle + [Environment]::NewLine + $GradientHelper + [Environment]::NewLine
+      ).Replace(
+        ($NamespaceNeedle -replace "`r`n", "`n"),
+        ($NamespaceNeedle -replace "`r`n", "`n") + "`n" + ($GradientHelper -replace "`r`n", "`n") + "`n"
+      )
+    }
+
+    $AngleNeedle = @(
+      "            linearGradient.direction.type = GradientDirectionType::Angle;",
+      "            if (valueIt->second.hasType<Float>()) {",
+      "              linearGradient.direction.value = (Float)(valueIt->second);",
+      "            }"
+    ) -join [Environment]::NewLine
+    $AngleReplacement = @(
+      "            if (valueIt->second.hasType<Float>()) {",
+      "              linearGradient.direction = (Float)(valueIt->second);",
+      "            }"
+    ) -join [Environment]::NewLine
+
+    $KeywordNeedle = @(
+      "            linearGradient.direction.type = GradientDirectionType::Keyword;",
+      "            if (valueIt->second.hasType<std::string>()) {",
+      "              linearGradient.direction.value =",
+      "                  parseGradientKeyword((std::string)(valueIt->second));",
+      "            }"
+    ) -join [Environment]::NewLine
+    $KeywordReplacement = @(
+      "            if (valueIt->second.hasType<std::string>()) {",
+      "              linearGradient.direction =",
+      "                  parseGradientKeyword((std::string)(valueIt->second));",
+      "            }"
+    ) -join [Environment]::NewLine
+
+    $UpdatedViewConversionText = $UpdatedViewConversionText.Replace(
+      $AngleNeedle,
+      $AngleReplacement
+    ).Replace(
+      ($AngleNeedle -replace "`r`n", "`n"),
+      ($AngleReplacement -replace "`r`n", "`n")
+    ).Replace(
+      $KeywordNeedle,
+      $KeywordReplacement
+    ).Replace(
+      ($KeywordNeedle -replace "`r`n", "`n"),
+      ($KeywordReplacement -replace "`r`n", "`n")
+    )
+
+    if ($UpdatedViewConversionText -ne $ViewConversionText) {
+      Set-Content -Path $ViewConversionHeader -Value $UpdatedViewConversionText -NoNewline
+      Write-Host "Applied BackgroundImage gradient direction compatibility patch: $ViewConversionHeader"
+      $PatchedAny = $true
+    } else {
+      Write-Host "BackgroundImage gradient direction compatibility patch was not needed: $ViewConversionHeader"
+    }
   }
 
   $MapBufferSource = Join-Path $RootDir "node_modules\react-native\ReactCommon\react\renderer\mapbuffer\MapBuffer.cpp"
