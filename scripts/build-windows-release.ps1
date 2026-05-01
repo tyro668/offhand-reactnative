@@ -62,6 +62,17 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  $ReactNativeTurboModuleDir = Join-Path $RootDir "node_modules\react-native\ReactCommon\react\nativemodule\core\ReactCommon"
+  $WindowsTempTurboModuleDir = Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\react\nativemodule\core\ReactCommon"
+  if ((Test-Path $ReactNativeTurboModuleDir) -and (Test-Path $WindowsTempTurboModuleDir)) {
+    Get-ChildItem $ReactNativeTurboModuleDir -File | Where-Object { $_.Extension -in ".h", ".cpp" } | ForEach-Object {
+      $DestinationPath = Join-Path $WindowsTempTurboModuleDir $_.Name
+      Copy-Item $_.FullName $DestinationPath -Force
+      Write-Host "Synced TurboModule compatibility file: $DestinationPath"
+      $PatchedAny = $true
+    }
+  }
+
   $ReactCommonProject = Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\ReactCommon.vcxproj"
   if (Test-Path $ReactCommonProject) {
     $ReactCommonProjectText = Get-Content $ReactCommonProject -Raw
@@ -74,6 +85,22 @@ function Repair-ReactNativeWindowsSources {
     ).Replace(
       '<DisableSpecificWarnings>4715;4251;4800;4804;4305;4722;%(DisableSpecificWarnings)</DisableSpecificWarnings>',
       '<DisableSpecificWarnings>4715;4251;4800;4804;4305;4722;4244;4267;%(DisableSpecificWarnings)</DisableSpecificWarnings>'
+    ).Replace(
+      '    <ClInclude Include="$(ReactNativeDir)\ReactCommon\react\nativemodule\core\ReactCommon\TurboCxxModule.h" />' + [Environment]::NewLine,
+      ''
+    ).Replace(
+      '    <ClCompile Include="$(ReactNativeDir)\ReactCommon\react\nativemodule\core\ReactCommon\TurboCxxModule.cpp" />' + [Environment]::NewLine,
+      ''
+    ).Replace(
+      '    <ClInclude Include="$(ReactNativeDir)\ReactCommon\react\nativemodule\core\ReactCommon\TurboModuleBinding.h" />',
+      '    <ClInclude Include="$(ReactNativeDir)\ReactCommon\react\nativemodule\core\ReactCommon\TurboModuleBinding.h" />' + [Environment]::NewLine +
+      '    <ClInclude Include="$(ReactNativeDir)\ReactCommon\react\nativemodule\core\ReactCommon\CxxTurboModuleUtils.h" />' + [Environment]::NewLine +
+      '    <ClInclude Include="$(ReactNativeDir)\ReactCommon\react\nativemodule\core\ReactCommon\TurboModulePerfLogger.h" />'
+    ).Replace(
+      '    <ClCompile Include="$(ReactNativeDir)\ReactCommon\react\nativemodule\core\ReactCommon\TurboModuleBinding.cpp" />',
+      '    <ClCompile Include="$(ReactNativeDir)\ReactCommon\react\nativemodule\core\ReactCommon\TurboModuleBinding.cpp" />' + [Environment]::NewLine +
+      '    <ClCompile Include="$(ReactNativeDir)\ReactCommon\react\nativemodule\core\ReactCommon\CxxTurboModuleUtils.cpp" />' + [Environment]::NewLine +
+      '    <ClCompile Include="$(ReactNativeDir)\ReactCommon\react\nativemodule\core\ReactCommon\TurboModulePerfLogger.cpp" />'
     )
 
     if ($UpdatedReactCommonProjectText -ne $ReactCommonProjectText) {
