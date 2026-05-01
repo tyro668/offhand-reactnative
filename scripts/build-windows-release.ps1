@@ -404,26 +404,37 @@ if ($LASTEXITCODE -ne 0) {
   throw "Windows autolink failed with exit code $LASTEXITCODE"
 }
 
-Write-Step "Build Windows package"
+Write-Step "Restore Windows package dependencies"
 $MSBuild = Get-MSBuildPath
 $ReactNativeWindowsDir = Join-Path $RootDir "node_modules\react-native-windows"
 $SolutionPath = Join-Path $WindowsDir "OffhandReactnative.sln"
-& $MSBuild $PackageProject `
-  /m `
-  /restore `
-  "/p:Configuration=$Configuration" `
-  "/p:Platform=$Platform" `
-  "/p:SolutionDir=$WindowsDir\" `
-  "/p:SolutionPath=$SolutionPath" `
-  "/p:SolutionFileName=OffhandReactnative.sln" `
-  "/p:ReactNativeWindowsDir=$ReactNativeWindowsDir\" `
-  "/p:AppxBundle=Never" `
-  "/p:UapAppxPackageBuildMode=SideloadOnly" `
-  "/p:AppxPackageSigningEnabled=false" `
-  "/p:WindowsAppSDKVerifyTransitiveDependencies=false" `
-  "/p:RnwNewArch=true" `
-  "/p:UseWinUI3=true" `
+$MSBuildPackageProperties = @(
+  "/p:Configuration=$Configuration",
+  "/p:Platform=$Platform",
+  "/p:SolutionDir=$WindowsDir\",
+  "/p:SolutionPath=$SolutionPath",
+  "/p:SolutionFileName=OffhandReactnative.sln",
+  "/p:ReactNativeWindowsDir=$ReactNativeWindowsDir\",
+  "/p:AppxBundle=Never",
+  "/p:UapAppxPackageBuildMode=SideloadOnly",
+  "/p:AppxPackageSigningEnabled=false",
+  "/p:WindowsAppSDKVerifyTransitiveDependencies=false",
+  "/p:RnwNewArch=true",
+  "/p:UseWinUI3=true",
   "/p:GenerateAppxPackageOnBuild=true"
+)
+
+& $MSBuild $PackageProject /m /t:Restore @MSBuildPackageProperties
+
+if ($LASTEXITCODE -ne 0) {
+  throw "MSBuild restore failed with exit code $LASTEXITCODE"
+}
+
+Write-Step "Patch React Native Windows sources after restore"
+Repair-ReactNativeWindowsSources
+
+Write-Step "Build Windows package"
+& $MSBuild $PackageProject /m @MSBuildPackageProperties
 
 if ($LASTEXITCODE -ne 0) {
   throw "MSBuild failed with exit code $LASTEXITCODE"
