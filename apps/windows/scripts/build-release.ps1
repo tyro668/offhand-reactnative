@@ -75,6 +75,30 @@ function Repair-WindowsAppSdkFoundationProps {
   }
 }
 
+function Repair-HermesProps {
+  $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE ".nuget\packages" }
+  $hermesRoot = Join-Path $nugetRoot "microsoft.javascript.hermes"
+  if (!(Test-Path $hermesRoot)) {
+    Write-Host "Hermes package was not restored under $hermesRoot"
+    return
+  }
+
+  $anchor = '    <HermesPlatform Condition="''$(HermesPlatform)'' == ''Win32''">x86</HermesPlatform>'
+  $fallback = "    <HermesPlatform Condition=""'`$(HermesPlatform)' == ''"">$windowsAppSdkFallbackPlatform</HermesPlatform>"
+  $propsFiles = Get-ChildItem -Path $hermesRoot -Recurse -File -Filter "Microsoft.JavaScript.Hermes.props"
+
+  foreach ($propsFile in $propsFiles) {
+    $content = Get-Content -Raw -Path $propsFile.FullName
+    if ($content.Contains($fallback) -or !$content.Contains($anchor)) {
+      continue
+    }
+
+    $updatedContent = $content.Replace($anchor, "$anchor`r`n$fallback")
+    Set-Content -Path $propsFile.FullName -Value $updatedContent -NoNewline -Encoding UTF8
+    Write-Host "Patched Hermes platform fallback in $($propsFile.FullName)"
+  }
+}
+
 if (!(Test-Path $solutionPath)) {
   throw "Windows solution not found at $solutionPath"
 }
@@ -106,6 +130,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Repair-WindowsAppSdkFoundationProps
+Repair-HermesProps
 
 & $msbuildPath $solutionPath /m @msbuildArgs
 
