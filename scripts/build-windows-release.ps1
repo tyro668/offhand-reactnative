@@ -62,6 +62,134 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  $NetworkIOAgentHeaders = @(
+    (Join-Path $ReactNativeJsInspectorDir "NetworkIOAgent.h"),
+    (Join-Path $WindowsTempJsInspectorDir "NetworkIOAgent.h")
+  )
+
+  foreach ($NetworkIOAgentHeader in $NetworkIOAgentHeaders) {
+    if (!(Test-Path $NetworkIOAgentHeader)) {
+      continue
+    }
+
+    $NetworkIOAgentHeaderText = Get-Content $NetworkIOAgentHeader -Raw
+    $UpdatedNetworkIOAgentHeaderText = $NetworkIOAgentHeaderText.Replace(
+      "class Stream; // Defined in NetworkIOAgent.cpp",
+      "class NetworkIOAgentStream; // Defined in NetworkIOAgent.cpp"
+    ).Replace(
+      "std::shared_ptr<Stream>",
+      "std::shared_ptr<NetworkIOAgentStream>"
+    ).Replace(
+      "Stream::create callback",
+      "NetworkIOAgentStream::create callback"
+    )
+
+    if ($UpdatedNetworkIOAgentHeaderText -ne $NetworkIOAgentHeaderText) {
+      Set-Content -Path $NetworkIOAgentHeader -Value $UpdatedNetworkIOAgentHeaderText -NoNewline
+      Write-Host "Applied NetworkIOAgent header Stream compatibility patch: $NetworkIOAgentHeader"
+      $PatchedAny = $true
+    } else {
+      Write-Host "NetworkIOAgent header Stream compatibility patch was not needed: $NetworkIOAgentHeader"
+    }
+  }
+
+  $NetworkIOAgentSources = @(
+    (Join-Path $ReactNativeJsInspectorDir "NetworkIOAgent.cpp"),
+    (Join-Path $WindowsTempJsInspectorDir "NetworkIOAgent.cpp")
+  )
+
+  foreach ($NetworkIOAgentSource in $NetworkIOAgentSources) {
+    if (!(Test-Path $NetworkIOAgentSource)) {
+      continue
+    }
+
+    $NetworkIOAgentText = Get-Content $NetworkIOAgentSource -Raw
+    $UpdatedNetworkIOAgentText = $NetworkIOAgentText.Replace(
+      "std::shared_ptr<Stream> stream;",
+      "std::shared_ptr<NetworkIOAgentStream> stream;"
+    ).Replace(
+      "class Stream : public NetworkRequestListener,",
+      "class NetworkIOAgentStream : public NetworkRequestListener,"
+    ).Replace(
+      "public EnableExecutorFromThis<Stream> {",
+      "public EnableExecutorFromThis<NetworkIOAgentStream> {"
+    ).Replace(
+      "  Stream(const Stream& other) = delete;",
+      "  NetworkIOAgentStream(const NetworkIOAgentStream& other) = delete;"
+    ).Replace(
+      "  Stream& operator=(const Stream& other) = delete;",
+      "  NetworkIOAgentStream& operator=(const NetworkIOAgentStream& other) = delete;"
+    ).Replace(
+      "  Stream(Stream&& other) = default;",
+      "  NetworkIOAgentStream(NetworkIOAgentStream&& other) = default;"
+    ).Replace(
+      "  Stream& operator=(Stream&& other) noexcept = default;",
+      "  NetworkIOAgentStream& operator=(NetworkIOAgentStream&& other) noexcept = default;"
+    ).Replace(
+      "  static std::shared_ptr<Stream> create(",
+      "  static std::shared_ptr<NetworkIOAgentStream> create("
+    ).Replace(
+      "    std::shared_ptr<Stream> stream{new Stream(initCb)};",
+      "    std::shared_ptr<NetworkIOAgentStream> stream{new NetworkIOAgentStream(initCb)};"
+    ).Replace(
+      "  ~Stream() override {",
+      "  ~NetworkIOAgentStream() override {"
+    ).Replace(
+      "  explicit Stream(const StreamInitCallback& initCb)",
+      "  explicit NetworkIOAgentStream(const StreamInitCallback& initCb)"
+    ).Replace(
+      "Stream::create(",
+      "NetworkIOAgentStream::create("
+    ).Replace(
+      "    bytesReceived_ += data.length();",
+      "    bytesReceived_ += static_cast<long>(data.length());"
+    )
+
+    $InitStreamNeedle = @(
+      "      (*cb)(InitStreamResult{",
+      "          .httpStatusCode = httpStatusCode,",
+      "          .headers = headers,",
+      "          .stream = this->shared_from_this()});"
+    ) -join [Environment]::NewLine
+    $InitStreamReplacement = @(
+      "      InitStreamResult result;",
+      "      result.httpStatusCode = httpStatusCode;",
+      "      result.headers = headers;",
+      "      result.stream = this->shared_from_this();",
+      "      (*cb)(std::move(result));"
+    ) -join [Environment]::NewLine
+    $UpdatedNetworkIOAgentText = $UpdatedNetworkIOAgentText.Replace(
+      $InitStreamNeedle,
+      $InitStreamReplacement
+    ).Replace(
+      ($InitStreamNeedle -replace "`r`n", "`n"),
+      ($InitStreamReplacement -replace "`r`n", "`n")
+    )
+
+    $LoadNetworkResourceNeedle = "  delegate.loadNetworkResource(params, stream->executorFromThis());"
+    $LoadNetworkResourceReplacement = @(
+      "  auto streamExecutor = stream->executorFromThis();",
+      "  delegate.loadNetworkResource(",
+      "      params,",
+      "      [streamExecutor = std::move(streamExecutor)](",
+      "          std::function<void(NetworkRequestListener &)> &&callback) mutable {",
+      "        streamExecutor([callback = std::move(callback)](NetworkIOAgentStream &stream) mutable { callback(stream); });",
+      "      });"
+    ) -join [Environment]::NewLine
+    $UpdatedNetworkIOAgentText = $UpdatedNetworkIOAgentText.Replace(
+      $LoadNetworkResourceNeedle,
+      $LoadNetworkResourceReplacement
+    )
+
+    if ($UpdatedNetworkIOAgentText -ne $NetworkIOAgentText) {
+      Set-Content -Path $NetworkIOAgentSource -Value $UpdatedNetworkIOAgentText -NoNewline
+      Write-Host "Applied NetworkIOAgent source Stream compatibility patch: $NetworkIOAgentSource"
+      $PatchedAny = $true
+    } else {
+      Write-Host "NetworkIOAgent source Stream compatibility patch was not needed: $NetworkIOAgentSource"
+    }
+  }
+
   $ReactNativeTurboModuleDir = Join-Path $RootDir "node_modules\react-native\ReactCommon\react\nativemodule\core\ReactCommon"
   $WindowsTempTurboModuleDir = Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\react\nativemodule\core\ReactCommon"
   if ((Test-Path $ReactNativeTurboModuleDir) -and (Test-Path $WindowsTempTurboModuleDir)) {
