@@ -36,28 +36,42 @@ function Repair-WindowsAppSdkFoundationProps {
     return
   }
 
-  $propsFiles = Get-ChildItem -Path $foundationRoot -Recurse -File -Include @(
+  $propsFileNames = @(
+    "MrtCore.C.props",
     "WindowsAppSDK-Nuget-Native.C.props",
     "WindowsAppSDK-Nuget-Native.WinRt.props"
   )
+  $propsFiles = Get-ChildItem -Path $foundationRoot -Recurse -File | Where-Object { $propsFileNames -contains $_.Name }
 
-  $anchor = '    <_WindowsAppSDKFoundationPlatform Condition="''$(Platform)'' != ''Win32''">$(Platform)</_WindowsAppSDKFoundationPlatform>'
-  $fallback = "    <_WindowsAppSDKFoundationPlatform Condition=""'`$(_WindowsAppSDKFoundationPlatform)' == ''"">$windowsAppSdkFallbackPlatform</_WindowsAppSDKFoundationPlatform>"
+  $patches = @(
+    @{
+      Anchor = '    <_WindowsAppSDKFoundationPlatform Condition="''$(Platform)'' != ''Win32''">$(Platform)</_WindowsAppSDKFoundationPlatform>'
+      Fallback = "    <_WindowsAppSDKFoundationPlatform Condition=""'`$(_WindowsAppSDKFoundationPlatform)' == ''"">$windowsAppSdkFallbackPlatform</_WindowsAppSDKFoundationPlatform>"
+    },
+    @{
+      Anchor = '    <_MrtCoreRuntimeIdentifier Condition="''$(Platform)'' != ''Win32''">$(Platform)</_MrtCoreRuntimeIdentifier>'
+      Fallback = "    <_MrtCoreRuntimeIdentifier Condition=""'`$(_MrtCoreRuntimeIdentifier)' == ''"">$windowsAppSdkFallbackPlatform</_MrtCoreRuntimeIdentifier>"
+    }
+  )
 
   foreach ($propsFile in $propsFiles) {
     $content = Get-Content -Raw -Path $propsFile.FullName
-    if ($content.Contains($fallback)) {
-      continue
+    $updatedContent = $content
+
+    foreach ($patch in $patches) {
+      $anchor = $patch["Anchor"]
+      $fallback = $patch["Fallback"]
+      if ($updatedContent.Contains($fallback) -or !$updatedContent.Contains($anchor)) {
+        continue
+      }
+
+      $updatedContent = $updatedContent.Replace($anchor, "$anchor`r`n$fallback")
     }
 
-    if (!$content.Contains($anchor)) {
-      Write-Warning "Could not find Windows App SDK platform anchor in $($propsFile.FullName)"
-      continue
+    if ($updatedContent -ne $content) {
+      Set-Content -Path $propsFile.FullName -Value $updatedContent -NoNewline -Encoding UTF8
+      Write-Host "Patched Windows App SDK platform fallback in $($propsFile.FullName)"
     }
-
-    $updatedContent = $content.Replace($anchor, "$anchor`r`n$fallback")
-    Set-Content -Path $propsFile.FullName -Value $updatedContent -NoNewline -Encoding UTF8
-    Write-Host "Patched Windows App SDK Foundation platform fallback in $($propsFile.FullName)"
   }
 }
 
