@@ -9,7 +9,13 @@ $configuration = if ($env:OFFHAND_WINDOWS_CONFIGURATION) { $env:OFFHAND_WINDOWS_
 $platformToolset = if ($env:OFFHAND_WINDOWS_PLATFORM_TOOLSET) { $env:OFFHAND_WINDOWS_PLATFORM_TOOLSET } else { "v143" }
 $windowsTargetPlatformVersion = if ($env:OFFHAND_WINDOWS_SDK_VERSION) { $env:OFFHAND_WINDOWS_SDK_VERSION } else { "10.0.22621.0" }
 $windowsTargetPlatformMinVersion = if ($env:OFFHAND_WINDOWS_MIN_SDK_VERSION) { $env:OFFHAND_WINDOWS_MIN_SDK_VERSION } else { "10.0.17763.0" }
-$windowsAppSdkFallbackPlatform = if ($env:OFFHAND_WINDOWS_APP_SDK_FALLBACK_PLATFORM) { $env:OFFHAND_WINDOWS_APP_SDK_FALLBACK_PLATFORM } else { "x86" }
+$windowsAppSdkFallbackPlatform = if ($env:OFFHAND_WINDOWS_APP_SDK_FALLBACK_PLATFORM) {
+  $env:OFFHAND_WINDOWS_APP_SDK_FALLBACK_PLATFORM
+} elseif ($platform -eq "x86" -or $platform -eq "Win32") {
+  "x86"
+} else {
+  $platform
+}
 
 function Get-MSBuildPath {
   $msbuild = Get-Command msbuild.exe -ErrorAction SilentlyContinue
@@ -126,6 +132,31 @@ function Repair-SqliteCppWinRtLegacyPackage {
   Write-Host "Copied CppWinRT package $($sourcePackage.Name) to SQLitePlugin legacy package path $legacyPackageDir"
 }
 
+function Repair-SqlitePluginProject {
+  $sqliteProjectPath = Join-Path $appRoot "node_modules\react-native-sqlite-storage\platforms\windows\SQLitePlugin\SQLitePlugin.vcxproj"
+  if (!(Test-Path $sqliteProjectPath)) {
+    Write-Host "SQLitePlugin project was not found at $sqliteProjectPath"
+    return
+  }
+
+  $defaultPropsImport = '    <Import Project="$(ReactNativeWindowsDir)\PropertySheets\External\Microsoft.ReactNative.WindowsSdk.Default.props" Condition="Exists(''$(ReactNativeWindowsDir)\PropertySheets\External\Microsoft.ReactNative.WindowsSdk.Default.props'')" />'
+  $cppLibPropsImport = '    <Import Project="$(ReactNativeWindowsDir)\PropertySheets\External\Microsoft.ReactNative.Uwp.CppLib.props" Condition="Exists(''$(ReactNativeWindowsDir)\PropertySheets\External\Microsoft.ReactNative.Uwp.CppLib.props'')" />'
+  $content = Get-Content -Raw -Path $sqliteProjectPath
+
+  if ($content.Contains($defaultPropsImport)) {
+    return
+  }
+
+  if (!$content.Contains($cppLibPropsImport)) {
+    Write-Host "SQLitePlugin project did not contain the RNW CppLib props import; skipping RNW SDK defaults patch."
+    return
+  }
+
+  $updatedContent = $content.Replace($cppLibPropsImport, "$defaultPropsImport`r`n$cppLibPropsImport")
+  Set-Content -Path $sqliteProjectPath -Value $updatedContent -NoNewline -Encoding UTF8
+  Write-Host "Patched SQLitePlugin RNW SDK defaults import in $sqliteProjectPath"
+}
+
 if (!(Test-Path $solutionPath)) {
   throw "Windows solution not found at $solutionPath"
 }
@@ -137,6 +168,7 @@ if (Test-Path $packageDir) {
 
 npm run bundle
 npx @react-native-community/cli autolink-windows --sln "windows\OffhandReactnative.sln" --proj "windows\OffhandReactnative\OffhandReactnative.vcxproj"
+Repair-SqlitePluginProject
 
 $msbuildPath = Get-MSBuildPath
 $msbuildArgs = @(
