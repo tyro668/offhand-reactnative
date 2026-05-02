@@ -48,7 +48,8 @@ $msbuildPath = Get-MSBuildPath
   /p:GenerateAppxPackageOnBuild=true `
   /p:AppxBundle=Never `
   /p:UapAppxPackageBuildMode=SideloadOnly `
-  /p:AppxPackageSigningEnabled=false
+  /p:AppxPackageSigningEnabled=false `
+  /p:WindowsAppSDKVerifyTransitiveDependencies=false
 
 if ($LASTEXITCODE -ne 0) {
   throw "MSBuild failed with exit code $LASTEXITCODE"
