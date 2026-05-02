@@ -359,6 +359,32 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  $MicrosoftReactNativeProject = Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Microsoft.ReactNative.vcxproj"
+  if (Test-Path $MicrosoftReactNativeProject) {
+    $MicrosoftReactNativeProjectText = Get-Content $MicrosoftReactNativeProject -Raw
+    $UpdatedMicrosoftReactNativeProjectText = $MicrosoftReactNativeProjectText
+
+    if (!$UpdatedMicrosoftReactNativeProjectText.Contains("<DisableSpecificWarnings>4244;4267;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>")) {
+      $TreatWarningAsErrorNeedle = "      <TreatWarningAsError>true</TreatWarningAsError>"
+      $TreatWarningAsErrorReplacement = @(
+        $TreatWarningAsErrorNeedle,
+        "      <DisableSpecificWarnings>4244;4267;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>"
+      ) -join [Environment]::NewLine
+      $UpdatedMicrosoftReactNativeProjectText = $UpdatedMicrosoftReactNativeProjectText.Replace(
+        $TreatWarningAsErrorNeedle,
+        $TreatWarningAsErrorReplacement
+      )
+    }
+
+    if ($UpdatedMicrosoftReactNativeProjectText -ne $MicrosoftReactNativeProjectText) {
+      Set-Content -Path $MicrosoftReactNativeProject -Value $UpdatedMicrosoftReactNativeProjectText -NoNewline
+      Write-Host "Applied Microsoft.ReactNative warning compatibility patch: $MicrosoftReactNativeProject"
+      $PatchedAny = $true
+    } else {
+      Write-Host "Microsoft.ReactNative warning compatibility patch was not needed: $MicrosoftReactNativeProject"
+    }
+  }
+
   $SharedProjectFiles = @(
     (Join-Path $RootDir "node_modules\react-native-windows\Shared\Shared.vcxitems"),
     (Join-Path $RootDir "node_modules\react-native-windows\Shared\Shared.vcxitems.filters")
