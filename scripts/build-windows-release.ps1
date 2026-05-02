@@ -170,6 +170,23 @@ function Repair-ReactNativeWindowsSources {
       "NetworkIOAgentNetworkIOAgentStream",
       "NetworkIOAgentStream"
     )
+    $TolowerTransformNeedle = @(
+      "      std::transform(",
+      "          lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);"
+    ) -join [Environment]::NewLine
+    $TolowerTransformReplacement = @(
+      "      std::transform(",
+      "          lowerName.begin(), lowerName.end(), lowerName.begin(), [](unsigned char c) {",
+      "            return static_cast<char>(::tolower(c));",
+      "          });"
+    ) -join [Environment]::NewLine
+    $UpdatedNetworkIOAgentText = $UpdatedNetworkIOAgentText.Replace(
+      $TolowerTransformNeedle,
+      $TolowerTransformReplacement
+    ).Replace(
+      ($TolowerTransformNeedle -replace "`r`n", "`n"),
+      ($TolowerTransformReplacement -replace "`r`n", "`n")
+    )
     $AnonymousNetworkIOAgentSourceOpenNeedle = @(
       "namespace {",
       "",
