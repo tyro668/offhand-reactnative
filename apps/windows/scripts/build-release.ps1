@@ -101,6 +101,30 @@ function Repair-HermesProps {
   }
 }
 
+function Repair-SqliteCppWinRtLegacyPackage {
+  $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE ".nuget\packages" }
+  $cppWinRtRoot = Join-Path $nugetRoot "microsoft.windows.cppwinrt"
+  if (!(Test-Path $cppWinRtRoot)) {
+    Write-Host "CppWinRT package was not restored under $cppWinRtRoot"
+    return
+  }
+
+  $sourcePackage = Get-ChildItem -Path $cppWinRtRoot -Directory | Sort-Object -Property Name -Descending | Select-Object -First 1
+  if (!$sourcePackage) {
+    Write-Host "No CppWinRT package version was found under $cppWinRtRoot"
+    return
+  }
+
+  $legacyPackageDir = Join-Path $appRoot "windows\packages\Microsoft.Windows.CppWinRT.2.0.200615.7"
+  if (Test-Path (Join-Path $legacyPackageDir "build\native\Microsoft.Windows.CppWinRT.props")) {
+    return
+  }
+
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $legacyPackageDir) | Out-Null
+  Copy-Item -Path $sourcePackage.FullName -Destination $legacyPackageDir -Recurse -Force
+  Write-Host "Copied CppWinRT package $($sourcePackage.Name) to SQLitePlugin legacy package path $legacyPackageDir"
+}
+
 if (!(Test-Path $solutionPath)) {
   throw "Windows solution not found at $solutionPath"
 }
@@ -135,6 +159,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Repair-WindowsAppSdkFoundationProps
 Repair-HermesProps
+Repair-SqliteCppWinRtLegacyPackage
 
 & $msbuildPath $solutionPath /m @msbuildArgs
 
