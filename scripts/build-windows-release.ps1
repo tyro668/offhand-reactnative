@@ -164,6 +164,9 @@ function Repair-ReactNativeWindowsSources {
       "    bytesReceived_ += data.length();",
       "    bytesReceived_ += static_cast<long>(data.length());"
     ).Replace(
+      "        size ? *size : DEFAULT_BYTES_PER_READ,",
+      "        size ? static_cast<long>(*size) : DEFAULT_BYTES_PER_READ,"
+    ).Replace(
       "NetworkIOAgentNetworkIOAgentStream",
       "NetworkIOAgentStream"
     )
