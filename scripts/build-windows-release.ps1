@@ -396,6 +396,7 @@ function Repair-ReactNativeWindowsSources {
 
     $SharedProjectText = Get-Content $SharedProjectFile -Raw
     $TraceRecordingStateSerializerInclude = '    <ClCompile Include="$(ReactNativeDir)\ReactCommon\jsinspector-modern\tracing\TraceRecordingStateSerializer.cpp" />'
+    $ParagraphComponentDescriptorInclude = '    <ClCompile Include="$(ReactNativeDir)\ReactCommon\react\renderer\components\text\ParagraphComponentDescriptor.cpp" DisableSpecificWarnings="5028;%(DisableSpecificWarnings)" />'
     $UpdatedSharedProjectText = $SharedProjectText.Replace(
       '$(ReactNativeDir)\ReactCommon\jsinspector-modern\tracing\NetworkReporter.h',
       '$(ReactNativeDir)\ReactCommon\jsinspector-modern\network\NetworkHandler.h'
@@ -407,6 +408,12 @@ function Repair-ReactNativeWindowsSources {
       ''
     ).Replace(
       $TraceRecordingStateSerializerInclude + "`n",
+      ''
+    ).Replace(
+      $ParagraphComponentDescriptorInclude + [Environment]::NewLine,
+      ''
+    ).Replace(
+      $ParagraphComponentDescriptorInclude + "`n",
       ''
     )
 
@@ -1191,6 +1198,41 @@ function Repair-ReactNativeWindowsSources {
   # picks up that header through its include path but the Windows toolchain
   # fails to recognise `MeasuredPreparedTextLayout`. Strip the new member and
   # constructor so the file compiles back to its 0.82-compatible shape.
+  $ParagraphCompatibilitySources = @(
+    (Join-Path $RootDir "node_modules\react-native\ReactCommon\react\renderer\components\text\ParagraphShadowNode.cpp"),
+    (Join-Path $RootDir "node_modules\react-native\ReactCommon\react\renderer\components\text\ParagraphShadowNode.h"),
+    (Join-Path $RootDir "node_modules\react-native\ReactCommon\react\renderer\components\text\platform\android\react\renderer\components\text\ParagraphState.h"),
+    (Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\react\renderer\components\text\ParagraphShadowNode.cpp"),
+    (Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\react\renderer\components\text\ParagraphShadowNode.h"),
+    (Join-Path $RootDir "node_modules\react-native-windows\ReactCommon\TEMP_UntilReactCommonUpdate\react\renderer\components\text\platform\android\react\renderer\components\text\ParagraphState.h")
+  )
+
+  foreach ($ParagraphCompatibilitySource in $ParagraphCompatibilitySources) {
+    if (!(Test-Path $ParagraphCompatibilitySource)) {
+      continue
+    }
+
+    $ParagraphCompatibilityText = Get-Content $ParagraphCompatibilitySource -Raw
+    $UpdatedParagraphCompatibilityText = $ParagraphCompatibilityText.Replace(
+      "MeasuredPreparedLayout",
+      "MeasuredPreparedTextLayout"
+    ).Replace(
+      "supportsPreparedLayout",
+      "supportsPreparedTextLayout"
+    ).Replace(
+      "PreparedLayout is not trivially copyable",
+      "PreparedTextLayout is not trivially copyable"
+    )
+
+    if ($UpdatedParagraphCompatibilityText -ne $ParagraphCompatibilityText) {
+      Set-Content -Path $ParagraphCompatibilitySource -Value $UpdatedParagraphCompatibilityText -NoNewline
+      Write-Host "Applied Paragraph prepared layout naming compatibility patch: $ParagraphCompatibilitySource"
+      $PatchedAny = $true
+    } else {
+      Write-Host "Paragraph prepared layout naming compatibility patch was not needed: $ParagraphCompatibilitySource"
+    }
+  }
+
   $ParagraphStateAndroidHeader = Join-Path $RootDir "node_modules\react-native\ReactCommon\react\renderer\components\text\platform\android\react\renderer\components\text\ParagraphState.h"
   $ParagraphStateFixture = Join-Path $PSScriptRoot "patches\ParagraphState.android.h"
   if ((Test-Path $ParagraphStateAndroidHeader) -and (Test-Path $ParagraphStateFixture)) {
