@@ -157,6 +157,32 @@ function Repair-SqlitePluginProject {
   Write-Host "Patched SQLitePlugin RNW SDK defaults import in $sqliteProjectPath"
 }
 
+function Repair-ReactNativeProjectReferenceProps {
+  $projectReferencesPropsPath = Join-Path $appRoot "node_modules\react-native-windows\PropertySheets\External\Microsoft.ReactNative.Cpp.ProjectReferences.props"
+  if (!(Test-Path $projectReferencesPropsPath)) {
+    Write-Host "React Native Windows project reference props were not found at $projectReferencesPropsPath"
+    return
+  }
+
+  $nameLine = '      <Name>Microsoft.ReactNative</Name>'
+  $setConfigurationLine = '      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>'
+  $setPlatformLine = '      <SetPlatform>Platform=$(Platform)</SetPlatform>'
+  $content = Get-Content -Raw -Path $projectReferencesPropsPath
+
+  if ($content.Contains($setConfigurationLine) -and $content.Contains($setPlatformLine)) {
+    return
+  }
+
+  if (!$content.Contains($nameLine)) {
+    Write-Host "React Native Windows project reference props did not contain the Microsoft.ReactNative reference; skipping configuration patch."
+    return
+  }
+
+  $updatedContent = $content.Replace($nameLine, "$nameLine`r`n$setConfigurationLine`r`n$setPlatformLine")
+  Set-Content -Path $projectReferencesPropsPath -Value $updatedContent -NoNewline -Encoding UTF8
+  Write-Host "Patched React Native Windows project reference configuration in $projectReferencesPropsPath"
+}
+
 if (!(Test-Path $solutionPath)) {
   throw "Windows solution not found at $solutionPath"
 }
@@ -169,6 +195,7 @@ if (Test-Path $packageDir) {
 npm run bundle
 npx @react-native-community/cli autolink-windows --sln "windows\OffhandReactnative.sln" --proj "windows\OffhandReactnative\OffhandReactnative.vcxproj"
 Repair-SqlitePluginProject
+Repair-ReactNativeProjectReferenceProps
 
 $msbuildPath = Get-MSBuildPath
 $msbuildArgs = @(
