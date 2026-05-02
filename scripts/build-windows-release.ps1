@@ -86,6 +86,23 @@ function Repair-ReactNativeWindowsSources {
       "NetworkIOAgentNetworkIOAgentStream",
       "NetworkIOAgentStream"
     )
+    $AnonymousNetworkIOAgentHeaderNeedle = @(
+      "namespace {",
+      "class NetworkIOAgentStream; // Defined in NetworkIOAgent.cpp",
+      "using StreamsMap = std::unordered_map<std::string, std::shared_ptr<NetworkIOAgentStream>>;",
+      "} // namespace"
+    ) -join [Environment]::NewLine
+    $NamedNetworkIOAgentHeaderReplacement = @(
+      "class NetworkIOAgentStream; // Defined in NetworkIOAgent.cpp",
+      "using StreamsMap = std::unordered_map<std::string, std::shared_ptr<NetworkIOAgentStream>>;"
+    ) -join [Environment]::NewLine
+    $UpdatedNetworkIOAgentHeaderText = $UpdatedNetworkIOAgentHeaderText.Replace(
+      $AnonymousNetworkIOAgentHeaderNeedle,
+      $NamedNetworkIOAgentHeaderReplacement
+    ).Replace(
+      ($AnonymousNetworkIOAgentHeaderNeedle -replace "`r`n", "`n"),
+      ($NamedNetworkIOAgentHeaderReplacement -replace "`r`n", "`n")
+    )
 
     if ($UpdatedNetworkIOAgentHeaderText -ne $NetworkIOAgentHeaderText) {
       Set-Content -Path $NetworkIOAgentHeader -Value $UpdatedNetworkIOAgentHeaderText -NoNewline
@@ -150,6 +167,38 @@ function Repair-ReactNativeWindowsSources {
       "NetworkIOAgentNetworkIOAgentStream",
       "NetworkIOAgentStream"
     )
+    $AnonymousNetworkIOAgentSourceOpenNeedle = @(
+      "namespace {",
+      "",
+      "struct InitStreamResult {"
+    ) -join [Environment]::NewLine
+    $AnonymousNetworkIOAgentSourceCloseNeedle = @(
+      "};",
+      "} // namespace",
+      "",
+      "NetworkIOAgent::~NetworkIOAgent() {"
+    ) -join [Environment]::NewLine
+    $UpdatedNetworkIOAgentText = $UpdatedNetworkIOAgentText.Replace(
+      $AnonymousNetworkIOAgentSourceOpenNeedle,
+      "struct InitStreamResult {"
+    ).Replace(
+      ($AnonymousNetworkIOAgentSourceOpenNeedle -replace "`r`n", "`n"),
+      "struct InitStreamResult {"
+    ).Replace(
+      $AnonymousNetworkIOAgentSourceCloseNeedle,
+      (@(
+        "};",
+        "",
+        "NetworkIOAgent::~NetworkIOAgent() {"
+      ) -join [Environment]::NewLine)
+    ).Replace(
+      ($AnonymousNetworkIOAgentSourceCloseNeedle -replace "`r`n", "`n"),
+      (@(
+        "};",
+        "",
+        "NetworkIOAgent::~NetworkIOAgent() {"
+      ) -join "`n")
+    )
 
     $InitStreamNeedle = @(
       "      (*cb)(InitStreamResult{",
@@ -175,12 +224,14 @@ function Repair-ReactNativeWindowsSources {
     $LoadNetworkResourceNeedle = "  delegate.loadNetworkResource(params, stream->executorFromThis());"
     $LoadNetworkResourceReplacement = @(
       "  auto streamExecutor = stream->executorFromThis();",
-      "  delegate.loadNetworkResource(",
-      "      params,",
-      "      [executor = std::move(streamExecutor)](",
+      "  ScopedExecutor<NetworkRequestListener> listenerExecutor =",
+      "      [streamExecutor](",
       "          std::function<void(NetworkRequestListener &)> &&callback) mutable {",
-      "        executor([callback = std::move(callback)](NetworkIOAgentStream &stream) mutable { callback(stream); });",
-      "      });"
+      "        streamExecutor([callback = std::move(callback)](NetworkIOAgentStream &stream) mutable {",
+      "          callback(static_cast<NetworkRequestListener &>(stream));",
+      "        });",
+      "      };",
+      "  delegate.loadNetworkResource(params, std::move(listenerExecutor));"
     ) -join [Environment]::NewLine
     $UpdatedNetworkIOAgentText = $UpdatedNetworkIOAgentText.Replace(
       $LoadNetworkResourceNeedle,
