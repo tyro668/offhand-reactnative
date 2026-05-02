@@ -82,6 +82,9 @@ function Repair-ReactNativeWindowsSources {
     ).Replace(
       "Stream::create callback",
       "NetworkIOAgentStream::create callback"
+    ).Replace(
+      "NetworkIOAgentNetworkIOAgentStream",
+      "NetworkIOAgentStream"
     )
 
     if ($UpdatedNetworkIOAgentHeaderText -ne $NetworkIOAgentHeaderText) {
@@ -143,6 +146,9 @@ function Repair-ReactNativeWindowsSources {
     ).Replace(
       "    bytesReceived_ += data.length();",
       "    bytesReceived_ += static_cast<long>(data.length());"
+    ).Replace(
+      "NetworkIOAgentNetworkIOAgentStream",
+      "NetworkIOAgentStream"
     )
 
     $InitStreamNeedle = @(
@@ -171,9 +177,9 @@ function Repair-ReactNativeWindowsSources {
       "  auto streamExecutor = stream->executorFromThis();",
       "  delegate.loadNetworkResource(",
       "      params,",
-      "      [streamExecutor = std::move(streamExecutor)](",
+      "      [executor = std::move(streamExecutor)](",
       "          std::function<void(NetworkRequestListener &)> &&callback) mutable {",
-      "        streamExecutor([callback = std::move(callback)](NetworkIOAgentStream &stream) mutable { callback(stream); });",
+      "        executor([callback = std::move(callback)](NetworkIOAgentStream &stream) mutable { callback(stream); });",
       "      });"
     ) -join [Environment]::NewLine
     $UpdatedNetworkIOAgentText = $UpdatedNetworkIOAgentText.Replace(
