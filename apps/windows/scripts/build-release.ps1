@@ -6,6 +6,7 @@ $distDir = Join-Path $appRoot "dist\windows"
 $packageDir = Join-Path $appRoot "windows\OffhandReactnative.Package\AppPackages"
 $platform = if ($env:OFFHAND_WINDOWS_PLATFORM) { $env:OFFHAND_WINDOWS_PLATFORM } else { "x64" }
 $configuration = if ($env:OFFHAND_WINDOWS_CONFIGURATION) { $env:OFFHAND_WINDOWS_CONFIGURATION } else { "Release" }
+$windowsAppSdkFallbackPlatform = if ($env:OFFHAND_WINDOWS_APP_SDK_FALLBACK_PLATFORM) { $env:OFFHAND_WINDOWS_APP_SDK_FALLBACK_PLATFORM } else { "x86" }
 
 function Get-MSBuildPath {
   $msbuild = Get-Command msbuild.exe -ErrorAction SilentlyContinue
@@ -27,6 +28,39 @@ function Get-MSBuildPath {
   throw "MSBuild.exe was not found. Install Visual Studio 2022 Build Tools with Desktop development for C++ and UWP."
 }
 
+function Repair-WindowsAppSdkFoundationProps {
+  $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE ".nuget\packages" }
+  $foundationRoot = Join-Path $nugetRoot "microsoft.windowsappsdk.foundation"
+  if (!(Test-Path $foundationRoot)) {
+    Write-Host "Windows App SDK Foundation package was not restored under $foundationRoot"
+    return
+  }
+
+  $propsFiles = Get-ChildItem -Path $foundationRoot -Recurse -File -Include @(
+    "WindowsAppSDK-Nuget-Native.C.props",
+    "WindowsAppSDK-Nuget-Native.WinRt.props"
+  )
+
+  $anchor = '    <_WindowsAppSDKFoundationPlatform Condition="''$(Platform)'' != ''Win32''">$(Platform)</_WindowsAppSDKFoundationPlatform>'
+  $fallback = "    <_WindowsAppSDKFoundationPlatform Condition=""'`$(_WindowsAppSDKFoundationPlatform)' == ''"">$windowsAppSdkFallbackPlatform</_WindowsAppSDKFoundationPlatform>"
+
+  foreach ($propsFile in $propsFiles) {
+    $content = Get-Content -Raw -Path $propsFile.FullName
+    if ($content.Contains($fallback)) {
+      continue
+    }
+
+    if (!$content.Contains($anchor)) {
+      Write-Warning "Could not find Windows App SDK platform anchor in $($propsFile.FullName)"
+      continue
+    }
+
+    $updatedContent = $content.Replace($anchor, "$anchor`r`n$fallback")
+    Set-Content -Path $propsFile.FullName -Value $updatedContent -NoNewline -Encoding UTF8
+    Write-Host "Patched Windows App SDK Foundation platform fallback in $($propsFile.FullName)"
+  }
+}
+
 if (!(Test-Path $solutionPath)) {
   throw "Windows solution not found at $solutionPath"
 }
@@ -40,18 +74,26 @@ npm run bundle
 npx @react-native-community/cli autolink-windows --sln "windows\OffhandReactnative.sln" --proj "windows\OffhandReactnative\OffhandReactnative.vcxproj"
 
 $msbuildPath = Get-MSBuildPath
-& $msbuildPath $solutionPath `
-  /restore `
-  /m `
-  /p:Configuration=$configuration `
-  /p:Platform=$platform `
-  /p:GenerateAppxPackageOnBuild=true `
-  /p:AppxBundle=Never `
-  /p:UapAppxPackageBuildMode=SideloadOnly `
-  /p:AppxPackageSigningEnabled=false `
-  /p:WindowsAppSDKVerifyTransitiveDependencies=false `
-  /p:WindowsAppSdkBootstrapInitialize=false `
-  /p:WindowsAppSdkDeploymentManagerInitialize=false
+$msbuildArgs = @(
+  "/p:Configuration=$configuration",
+  "/p:Platform=$platform",
+  "/p:GenerateAppxPackageOnBuild=true",
+  "/p:AppxBundle=Never",
+  "/p:UapAppxPackageBuildMode=SideloadOnly",
+  "/p:AppxPackageSigningEnabled=false",
+  "/p:WindowsAppSDKVerifyTransitiveDependencies=false",
+  "/p:WindowsAppSdkBootstrapInitialize=false",
+  "/p:WindowsAppSdkDeploymentManagerInitialize=false"
+)
+
+& $msbuildPath $solutionPath /t:Restore @msbuildArgs
+if ($LASTEXITCODE -ne 0) {
+  throw "MSBuild restore failed with exit code $LASTEXITCODE"
+}
+
+Repair-WindowsAppSdkFoundationProps
+
+& $msbuildPath $solutionPath /m @msbuildArgs
 
 if ($LASTEXITCODE -ne 0) {
   throw "MSBuild failed with exit code $LASTEXITCODE"
