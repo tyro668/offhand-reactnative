@@ -9,13 +9,13 @@
     "macos": "node scripts/run-macos-dev.js",
     "macos:clean": "rm -rf ~/Library/Developer/Xcode/DerivedData/OffhandReactnative-* && node scripts/run-macos-dev.js",
     "macos:release": "bash scripts/build-macos-release.sh",
-    "windows:release": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-release.ps1",
+    "windows:release": "npm --prefix apps/windows run release",
     "build:release": "npm run macos:release",
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
-    "windows": "npx @react-native-community/cli run-windows",
-    "test:windows": "jest --config jest.config.windows.js"
+    "windows": "npm --prefix apps/windows run windows",
+    "test:windows": "npm --prefix apps/windows run test:windows"
   },
   "dependencies": {
     "@react-native/new-app-screen": "0.85.2",

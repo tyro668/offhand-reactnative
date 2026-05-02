@@ -19,7 +19,7 @@ type AppPathsModule = {
 const AppPaths = NativeModules.AppPaths as AppPathsModule | undefined;
 
 async function getDatabaseOpenOptions(): Promise<DatabaseOpenOptions> {
-  if (Platform.OS === 'macos' && AppPaths?.getDatabaseOpenOptions) {
+  if ((Platform.OS === 'macos' || Platform.OS === 'windows') && AppPaths?.getDatabaseOpenOptions) {
     try {
       const options = await AppPaths.getDatabaseOpenOptions(DB_NAME);
       console.log(`[DB] opening app data database at ${options.path ?? options.name}`);
@@ -806,4 +806,3 @@ async function getMonthlyStats(months: number): Promise<Array<{label: string} & 
   }
   return result;
 }
-

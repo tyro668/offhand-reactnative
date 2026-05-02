@@ -10,14 +10,11 @@ on:
       - "App.tsx"
       - "index.js"
       - "package.json"
-      - "package-lock.json"
       - "babel.config.js"
-      - "metro.config.js"
-      - "react-native.config.js"
+      - "tsconfig.json"
       - "src/**"
       - "assets/**"
-      - "windows/**"
-      - "scripts/build-windows-release.ps1"
+      - "apps/windows/**"
 
 permissions:
   contents: read
@@ -37,25 +34,29 @@ jobs:
         with:
           node-version: "22.11.0"
           cache: npm
+          cache-dependency-path: apps/windows/package-lock.json
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
       - name: Install JS dependencies
+        working-directory: apps/windows
         run: npm ci --legacy-peer-deps
 
       - name: TypeScript check
-        run: npx tsc --noEmit --pretty false
+        working-directory: apps/windows
+        run: npm run typecheck
 
       - name: Build Windows release
+        working-directory: apps/windows
         shell: pwsh
-        run: npm run windows:release
+        run: npm run release
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: offhand-windows-release
           path: |
-            dist/windows/*.zip
-            windows/OffhandReactnative.Package/AppPackages/**
+            apps/windows/dist/windows/*.zip
+            apps/windows/windows/OffhandReactnative.Package/AppPackages/**
           if-no-files-found: error

@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["jest", "react-native"]
+  },
+  "include": [
+    "../../App.tsx",
+    "../../index.js",
+    "../../src/**/*.ts",
+    "../../src/**/*.tsx",
+    "./index.js",
+    "./jest.config.windows.js",
+    "./metro.config.js"
+  ]
+}

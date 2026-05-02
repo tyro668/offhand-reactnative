@@ -213,7 +213,7 @@ export function useRecorder() {
   useEffect(() => {
     appendLog('useRecorder mounted.');
     appendLog(
-      `native modules: overlay=${!!OverlayManager} audio=${!!AudioRecorder} speech=${!!SpeechTranscriber} inserter=${!!TextInserter}`,
+      `native modules: overlay=${!!OverlayManager} audio=${!!AudioRecorder} sherpa=${!!SherpaTranscriber} speech=${!!SpeechTranscriber} inserter=${!!TextInserter}`,
     );
 
     if (!OverlayManager || !overlayEmitter || !AudioRecorder || !audioEmitter) {
@@ -263,14 +263,16 @@ export function useRecorder() {
     // Record complete
     const sub3 = audioEmitter.addListener(
       'onRecordComplete',
-      async (event: {success: boolean; filePath: string}) => {
+      async (event: {success: boolean; filePath: string; error?: string}) => {
         appendLog(
-          `onRecordComplete success=${event.success} filePath=${event.filePath || ''}`,
+          `onRecordComplete success=${event.success} filePath=${event.filePath || ''} error=${event.error || ''}`,
         );
 
         if (!event.success) {
           hideOverlay();
-          appendLog('recording failed; workflow stopped.');
+          appendLog(
+            `recording failed; workflow stopped.${event.error ? ` error=${event.error}` : ''}`,
+          );
           if (recordingRef.current) {
             appendLog('resetting native recording state after recorder failure.');
             OverlayManager.toggleRecording();
