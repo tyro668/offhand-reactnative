@@ -169,20 +169,29 @@ function Repair-SqlitePluginProject {
 
   $defaultPropsImport = '    <Import Project="$(ReactNativeWindowsDir)\PropertySheets\External\Microsoft.ReactNative.WindowsSdk.Default.props" Condition="Exists(''$(ReactNativeWindowsDir)\PropertySheets\External\Microsoft.ReactNative.WindowsSdk.Default.props'')" />'
   $cppLibPropsImport = '    <Import Project="$(ReactNativeWindowsDir)\PropertySheets\External\Microsoft.ReactNative.Uwp.CppLib.props" Condition="Exists(''$(ReactNativeWindowsDir)\PropertySheets\External\Microsoft.ReactNative.Uwp.CppLib.props'')" />'
+  $reactNativeWindowsDirLine = '    <ReactNativeWindowsDir Condition="''$(ReactNativeWindowsDir)'' == ''''">$([MSBuild]::GetDirectoryNameOfFileAbove($(SolutionDir), ''node_modules\react-native-windows\package.json''))\node_modules\react-native-windows\</ReactNativeWindowsDir>'
+  $forceWinUi3Line = '    <ForcePaperUseWinUI3>true</ForcePaperUseWinUI3>'
   $content = Get-Content -Raw -Path $sqliteProjectPath
+  $updatedContent = $content
 
-  if ($content.Contains($defaultPropsImport)) {
-    return
+  if (!$updatedContent.Contains($forceWinUi3Line)) {
+    if ($updatedContent.Contains($reactNativeWindowsDirLine)) {
+      $updatedContent = $updatedContent.Replace($reactNativeWindowsDirLine, "$reactNativeWindowsDirLine`r`n$forceWinUi3Line")
+    } else {
+      Write-Host "SQLitePlugin project did not contain the RNW directory property; skipping WinUI3 compatibility patch."
+    }
   }
 
-  if (!$content.Contains($cppLibPropsImport)) {
+  if (!$updatedContent.Contains($defaultPropsImport) -and !$updatedContent.Contains($cppLibPropsImport)) {
     Write-Host "SQLitePlugin project did not contain the RNW CppLib props import; skipping RNW SDK defaults patch."
-    return
+  } elseif (!$updatedContent.Contains($defaultPropsImport)) {
+    $updatedContent = $updatedContent.Replace($cppLibPropsImport, "$defaultPropsImport`r`n$cppLibPropsImport")
   }
 
-  $updatedContent = $content.Replace($cppLibPropsImport, "$defaultPropsImport`r`n$cppLibPropsImport")
-  Set-Content -Path $sqliteProjectPath -Value $updatedContent -NoNewline -Encoding UTF8
-  Write-Host "Patched SQLitePlugin RNW SDK defaults import in $sqliteProjectPath"
+  if ($updatedContent -ne $content) {
+    Set-Content -Path $sqliteProjectPath -Value $updatedContent -NoNewline -Encoding UTF8
+    Write-Host "Patched SQLitePlugin RNW project compatibility in $sqliteProjectPath"
+  }
 }
 
 function Repair-ReactNativeProjectReferenceProps {
