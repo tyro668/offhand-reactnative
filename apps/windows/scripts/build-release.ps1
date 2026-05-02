@@ -37,6 +37,7 @@ if (Test-Path $packageDir) {
 }
 
 npm run bundle
+npx @react-native-community/cli autolink-windows --sln "windows\OffhandReactnative.sln" --proj "windows\OffhandReactnative\OffhandReactnative.vcxproj"
 
 $msbuildPath = Get-MSBuildPath
 & $msbuildPath $solutionPath `
