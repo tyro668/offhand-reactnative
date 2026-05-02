@@ -9,6 +9,7 @@ $configuration = if ($env:OFFHAND_WINDOWS_CONFIGURATION) { $env:OFFHAND_WINDOWS_
 $platformToolset = if ($env:OFFHAND_WINDOWS_PLATFORM_TOOLSET) { $env:OFFHAND_WINDOWS_PLATFORM_TOOLSET } else { "v143" }
 $windowsTargetPlatformVersion = if ($env:OFFHAND_WINDOWS_SDK_VERSION) { $env:OFFHAND_WINDOWS_SDK_VERSION } else { "10.0.22621.0" }
 $windowsTargetPlatformMinVersion = if ($env:OFFHAND_WINDOWS_MIN_SDK_VERSION) { $env:OFFHAND_WINDOWS_MIN_SDK_VERSION } else { "10.0.17763.0" }
+$useExperimentalNuget = if ($env:OFFHAND_WINDOWS_USE_EXPERIMENTAL_NUGET) { $env:OFFHAND_WINDOWS_USE_EXPERIMENTAL_NUGET } else { "true" }
 $windowsAppSdkFallbackPlatform = if ($env:OFFHAND_WINDOWS_APP_SDK_FALLBACK_PLATFORM) {
   $env:OFFHAND_WINDOWS_APP_SDK_FALLBACK_PLATFORM
 } elseif ($platform -eq "x86" -or $platform -eq "Win32") {
@@ -165,8 +166,9 @@ function Repair-ReactNativeProjectReferenceProps {
   }
 
   $nameLine = '      <Name>Microsoft.ReactNative</Name>'
-  $setConfigurationLine = '      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>'
-  $setPlatformLine = '      <SetPlatform>Platform=$(Platform)</SetPlatform>'
+  $projectReferencePlatform = if ($platform -eq "x86") { "Win32" } else { $platform }
+  $setConfigurationLine = "      <SetConfiguration>Configuration=$configuration</SetConfiguration>"
+  $setPlatformLine = "      <SetPlatform>Platform=$projectReferencePlatform</SetPlatform>"
   $content = Get-Content -Raw -Path $projectReferencesPropsPath
 
   if ($content.Contains($setConfigurationLine) -and $content.Contains($setPlatformLine)) {
@@ -204,6 +206,7 @@ $msbuildArgs = @(
   "/p:PlatformToolset=$platformToolset",
   "/p:WindowsTargetPlatformVersion=$windowsTargetPlatformVersion",
   "/p:WindowsTargetPlatformMinVersion=$windowsTargetPlatformMinVersion",
+  "/p:UseExperimentalNuget=$useExperimentalNuget",
   "/p:GenerateAppxPackageOnBuild=true",
   "/p:AppxBundle=Never",
   "/p:UapAppxPackageBuildMode=SideloadOnly",
