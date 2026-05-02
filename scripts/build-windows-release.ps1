@@ -371,6 +371,12 @@ function Repair-ReactNativeWindowsSources {
     $SharedProjectText = Get-Content $SharedProjectFile -Raw
     $TraceRecordingStateSerializerInclude = '    <ClCompile Include="$(ReactNativeDir)\ReactCommon\jsinspector-modern\tracing\TraceRecordingStateSerializer.cpp" />'
     $UpdatedSharedProjectText = $SharedProjectText.Replace(
+      '$(ReactNativeDir)\ReactCommon\jsinspector-modern\tracing\NetworkReporter.h',
+      '$(ReactNativeDir)\ReactCommon\jsinspector-modern\network\NetworkHandler.h'
+    ).Replace(
+      '$(ReactNativeDir)\ReactCommon\jsinspector-modern\network\NetworkReporter.cpp',
+      '$(ReactNativeDir)\ReactCommon\jsinspector-modern\network\NetworkHandler.cpp'
+    ).Replace(
       $TraceRecordingStateSerializerInclude + [Environment]::NewLine,
       ''
     ).Replace(
@@ -380,10 +386,217 @@ function Repair-ReactNativeWindowsSources {
 
     if ($UpdatedSharedProjectText -ne $SharedProjectText) {
       Set-Content -Path $SharedProjectFile -Value $UpdatedSharedProjectText -NoNewline
-      Write-Host "Removed stale TraceRecordingStateSerializer project reference: $SharedProjectFile"
+      Write-Host "Applied Shared project jsinspector compatibility patch: $SharedProjectFile"
       $PatchedAny = $true
     } else {
-      Write-Host "TraceRecordingStateSerializer project reference patch was not needed: $SharedProjectFile"
+      Write-Host "Shared project jsinspector compatibility patch was not needed: $SharedProjectFile"
+    }
+  }
+
+  $FeatureFlagCompatibilityMethods = @(
+    @{ Name = "cxxNativeAnimatedRemoveJsSync"; Type = "bool"; ReturnValue = "false" },
+    @{ Name = "disableFabricCommitInCXXAnimated"; Type = "bool"; ReturnValue = "false" },
+    @{ Name = "disableOldAndroidAttachmentMetricsWorkarounds"; Type = "bool"; ReturnValue = "true" },
+    @{ Name = "enableNewBackgroundAndBorderDrawables"; Type = "bool"; ReturnValue = "true" },
+    @{ Name = "enableResourceTimingAPI"; Type = "bool"; ReturnValue = "false" },
+    @{ Name = "enableVirtualViewRenderState"; Type = "bool"; ReturnValue = "true" },
+    @{ Name = "enableVirtualViewWindowFocusDetection"; Type = "bool"; ReturnValue = "false" },
+    @{ Name = "enableWebPerformanceAPIsByDefault"; Type = "bool"; ReturnValue = "false" },
+    @{ Name = "releaseImageDataWhenConsumed"; Type = "bool"; ReturnValue = "false" },
+    @{ Name = "sweepActiveTouchOnChildNativeGesturesAndroid"; Type = "bool"; ReturnValue = "false" },
+    @{ Name = "useNativeEqualsInNativeReadableArrayAndroid"; Type = "bool"; ReturnValue = "true" },
+    @{ Name = "useNativeTransformHelperAndroid"; Type = "bool"; ReturnValue = "true" },
+    @{ Name = "useOptimizedEventBatchingOnAndroid"; Type = "bool"; ReturnValue = "false" },
+    @{ Name = "useRawPropsJsiValue"; Type = "bool"; ReturnValue = "true" },
+    @{ Name = "useShadowNodeStateOnClone"; Type = "bool"; ReturnValue = "false" }
+  )
+
+  $FeatureFlagsHeader = Join-Path $RootDir "node_modules\react-native\ReactCommon\react\nativemodule\featureflags\NativeReactNativeFeatureFlags.h"
+  if (Test-Path $FeatureFlagsHeader) {
+    $FeatureFlagsHeaderText = Get-Content $FeatureFlagsHeader -Raw
+    $UpdatedFeatureFlagsHeaderText = $FeatureFlagsHeaderText
+    $VirtualViewPrerenderDeclaration = "  double virtualViewPrerenderRatio(jsi::Runtime& runtime);"
+
+    if (!$UpdatedFeatureFlagsHeaderText.Contains("virtualViewHysteresisRatio(jsi::Runtime")) {
+      $VirtualViewDeclarations = @(
+        "  double virtualViewHysteresisRatio(jsi::Runtime& runtime);",
+        "",
+        $VirtualViewPrerenderDeclaration
+      ) -join [Environment]::NewLine
+      $UpdatedFeatureFlagsHeaderText = $UpdatedFeatureFlagsHeaderText.Replace(
+        $VirtualViewPrerenderDeclaration,
+        $VirtualViewDeclarations
+      )
+    }
+
+    foreach ($Method in $FeatureFlagCompatibilityMethods) {
+      $MethodDeclaration = "  $($Method.Type) $($Method.Name)(jsi::Runtime& runtime);"
+      if (!$UpdatedFeatureFlagsHeaderText.Contains("$($Method.Name)(jsi::Runtime")) {
+        $UpdatedFeatureFlagsHeaderText = $UpdatedFeatureFlagsHeaderText.Replace(
+          $VirtualViewPrerenderDeclaration,
+          $MethodDeclaration + [Environment]::NewLine + [Environment]::NewLine + $VirtualViewPrerenderDeclaration
+        )
+      }
+    }
+
+    if ($UpdatedFeatureFlagsHeaderText -ne $FeatureFlagsHeaderText) {
+      Set-Content -Path $FeatureFlagsHeader -Value $UpdatedFeatureFlagsHeaderText -NoNewline
+      Write-Host "Applied NativeReactNativeFeatureFlags hysteresis compatibility header patch: $FeatureFlagsHeader"
+      $PatchedAny = $true
+    } else {
+      Write-Host "NativeReactNativeFeatureFlags hysteresis compatibility header patch was not needed: $FeatureFlagsHeader"
+    }
+  }
+
+  $FeatureFlagsSource = Join-Path $RootDir "node_modules\react-native\ReactCommon\react\nativemodule\featureflags\NativeReactNativeFeatureFlags.cpp"
+  if (Test-Path $FeatureFlagsSource) {
+    $FeatureFlagsSourceText = Get-Content $FeatureFlagsSource -Raw
+    $UpdatedFeatureFlagsSourceText = $FeatureFlagsSourceText
+    $VirtualViewPrerenderDefinition = @(
+      "double NativeReactNativeFeatureFlags::virtualViewPrerenderRatio(",
+      "    jsi::Runtime& /*runtime*/) {",
+      "  return ReactNativeFeatureFlags::virtualViewPrerenderRatio();",
+      "}"
+    ) -join [Environment]::NewLine
+
+    if (!$UpdatedFeatureFlagsSourceText.Contains("NativeReactNativeFeatureFlags::virtualViewHysteresisRatio")) {
+      $VirtualViewDefinitions = @(
+        "double NativeReactNativeFeatureFlags::virtualViewHysteresisRatio(",
+        "    jsi::Runtime& /*runtime*/) {",
+        "  return 0.0;",
+        "}",
+        "",
+        $VirtualViewPrerenderDefinition
+      ) -join [Environment]::NewLine
+      $UpdatedFeatureFlagsSourceText = $UpdatedFeatureFlagsSourceText.Replace(
+        $VirtualViewPrerenderDefinition,
+        $VirtualViewDefinitions
+      ).Replace(
+        ($VirtualViewPrerenderDefinition -replace "`r`n", "`n"),
+        ($VirtualViewDefinitions -replace "`r`n", "`n")
+      )
+    }
+
+    foreach ($Method in $FeatureFlagCompatibilityMethods) {
+      if (!$UpdatedFeatureFlagsSourceText.Contains("NativeReactNativeFeatureFlags::$($Method.Name)")) {
+        $MethodDefinition = @(
+          "$($Method.Type) NativeReactNativeFeatureFlags::$($Method.Name)(",
+          "    jsi::Runtime& /*runtime*/) {",
+          "  return $($Method.ReturnValue);",
+          "}"
+        ) -join [Environment]::NewLine
+        $UpdatedFeatureFlagsSourceText = $UpdatedFeatureFlagsSourceText.Replace(
+          $VirtualViewPrerenderDefinition,
+          $MethodDefinition + [Environment]::NewLine + [Environment]::NewLine + $VirtualViewPrerenderDefinition
+        ).Replace(
+          ($VirtualViewPrerenderDefinition -replace "`r`n", "`n"),
+          ($MethodDefinition -replace "`r`n", "`n") + "`n`n" + ($VirtualViewPrerenderDefinition -replace "`r`n", "`n")
+        )
+      }
+    }
+
+    if ($UpdatedFeatureFlagsSourceText -ne $FeatureFlagsSourceText) {
+      Set-Content -Path $FeatureFlagsSource -Value $UpdatedFeatureFlagsSourceText -NoNewline
+      Write-Host "Applied NativeReactNativeFeatureFlags hysteresis compatibility source patch: $FeatureFlagsSource"
+      $PatchedAny = $true
+    } else {
+      Write-Host "NativeReactNativeFeatureFlags hysteresis compatibility source patch was not needed: $FeatureFlagsSource"
+    }
+  }
+
+  $RnwCoreJsiHeader = Join-Path $RootDir "node_modules\react-native-windows\codegen\rnwcoreJSI.h"
+  if (Test-Path $RnwCoreJsiHeader) {
+    $RnwCoreJsiHeaderText = Get-Content $RnwCoreJsiHeader -Raw
+    $UpdatedRnwCoreJsiHeaderText = $RnwCoreJsiHeaderText
+
+    if ($UpdatedRnwCoreJsiHeaderText.Contains("template <typename P0, typename P1, typename P2, typename P3, typename P4>") -and
+        $UpdatedRnwCoreJsiHeaderText.Contains("struct NativeIntersectionObserverNativeIntersectionObserverObserveOptions")) {
+      $UpdatedRnwCoreJsiHeaderText = $UpdatedRnwCoreJsiHeaderText.Replace(
+        "template <typename P0, typename P1, typename P2, typename P3, typename P4>" + [Environment]::NewLine + "struct NativeIntersectionObserverNativeIntersectionObserverObserveOptions {",
+        "template <typename P0, typename P1, typename P2, typename P3, typename P4, typename P5>" + [Environment]::NewLine + "struct NativeIntersectionObserverNativeIntersectionObserverObserveOptions {"
+      ).Replace(
+        "template <typename P0, typename P1, typename P2, typename P3, typename P4>`nstruct NativeIntersectionObserverNativeIntersectionObserverObserveOptions {",
+        "template <typename P0, typename P1, typename P2, typename P3, typename P4, typename P5>`nstruct NativeIntersectionObserverNativeIntersectionObserverObserveOptions {"
+      )
+    }
+
+    if (!$UpdatedRnwCoreJsiHeaderText.Contains("P5 rootMargin;")) {
+      $RootThresholdsField = "  P4 rootThresholds;"
+      $UpdatedRnwCoreJsiHeaderText = $UpdatedRnwCoreJsiHeaderText.Replace(
+        $RootThresholdsField,
+        $RootThresholdsField + [Environment]::NewLine + "  P5 rootMargin;"
+      )
+    }
+
+    $UpdatedRnwCoreJsiHeaderText = $UpdatedRnwCoreJsiHeaderText.Replace(
+      "return intersectionObserverId == other.intersectionObserverId && rootShadowNode == other.rootShadowNode && targetShadowNode == other.targetShadowNode && thresholds == other.thresholds && rootThresholds == other.rootThresholds;",
+      "return intersectionObserverId == other.intersectionObserverId && rootShadowNode == other.rootShadowNode && targetShadowNode == other.targetShadowNode && thresholds == other.thresholds && rootThresholds == other.rootThresholds && rootMargin == other.rootMargin;"
+    )
+
+    if (!$UpdatedRnwCoreJsiHeaderText.Contains('value.getProperty(rt, "rootMargin")')) {
+      $RootThresholdsFromJs = '      bridging::fromJs<decltype(types.rootThresholds)>(rt, value.getProperty(rt, "rootThresholds"), jsInvoker)};'
+      $RootMarginFromJs = @(
+        '      bridging::fromJs<decltype(types.rootThresholds)>(rt, value.getProperty(rt, "rootThresholds"), jsInvoker),',
+        '      bridging::fromJs<decltype(types.rootMargin)>(rt, value.getProperty(rt, "rootMargin"), jsInvoker)};'
+      ) -join [Environment]::NewLine
+      $UpdatedRnwCoreJsiHeaderText = $UpdatedRnwCoreJsiHeaderText.Replace(
+        $RootThresholdsFromJs,
+        $RootMarginFromJs
+      ).Replace(
+        ($RootThresholdsFromJs -replace "`r`n", "`n"),
+        ($RootMarginFromJs -replace "`r`n", "`n")
+      )
+    }
+
+    if (!$UpdatedRnwCoreJsiHeaderText.Contains("rootMarginToJs")) {
+      $RootThresholdsToJsDebug = @(
+        "  static std::optional<jsi::Array> rootThresholdsToJs(jsi::Runtime &rt, decltype(types.rootThresholds) value) {",
+        "    return bridging::toJs(rt, value);",
+        "  }"
+      ) -join [Environment]::NewLine
+      $RootMarginToJsDebug = @(
+        $RootThresholdsToJsDebug,
+        "",
+        "  static std::optional<jsi::String> rootMarginToJs(jsi::Runtime &rt, decltype(types.rootMargin) value) {",
+        "    return bridging::toJs(rt, value);",
+        "  }"
+      ) -join [Environment]::NewLine
+      $UpdatedRnwCoreJsiHeaderText = $UpdatedRnwCoreJsiHeaderText.Replace(
+        $RootThresholdsToJsDebug,
+        $RootMarginToJsDebug
+      ).Replace(
+        ($RootThresholdsToJsDebug -replace "`r`n", "`n"),
+        ($RootMarginToJsDebug -replace "`r`n", "`n")
+      )
+    }
+
+    if (!$UpdatedRnwCoreJsiHeaderText.Contains('result.setProperty(rt, "rootMargin"')) {
+      $RootThresholdsToJs = @(
+        '    if (value.rootThresholds) {',
+        '      result.setProperty(rt, "rootThresholds", bridging::toJs(rt, value.rootThresholds.value(), jsInvoker));',
+        '    }'
+      ) -join [Environment]::NewLine
+      $RootMarginToJs = @(
+        $RootThresholdsToJs,
+        '    if (value.rootMargin) {',
+        '      result.setProperty(rt, "rootMargin", bridging::toJs(rt, value.rootMargin.value(), jsInvoker));',
+        '    }'
+      ) -join [Environment]::NewLine
+      $UpdatedRnwCoreJsiHeaderText = $UpdatedRnwCoreJsiHeaderText.Replace(
+        $RootThresholdsToJs,
+        $RootMarginToJs
+      ).Replace(
+        ($RootThresholdsToJs -replace "`r`n", "`n"),
+        ($RootMarginToJs -replace "`r`n", "`n")
+      )
+    }
+
+    if ($UpdatedRnwCoreJsiHeaderText -ne $RnwCoreJsiHeaderText) {
+      Set-Content -Path $RnwCoreJsiHeader -Value $UpdatedRnwCoreJsiHeaderText -NoNewline
+      Write-Host "Applied rnwcoreJSI IntersectionObserver rootMargin compatibility patch: $RnwCoreJsiHeader"
+      $PatchedAny = $true
+    } else {
+      Write-Host "rnwcoreJSI IntersectionObserver rootMargin compatibility patch was not needed: $RnwCoreJsiHeader"
     }
   }
 
