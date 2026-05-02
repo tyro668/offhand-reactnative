@@ -359,6 +359,34 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  $SharedProjectFiles = @(
+    (Join-Path $RootDir "node_modules\react-native-windows\Shared\Shared.vcxitems"),
+    (Join-Path $RootDir "node_modules\react-native-windows\Shared\Shared.vcxitems.filters")
+  )
+  foreach ($SharedProjectFile in $SharedProjectFiles) {
+    if (!(Test-Path $SharedProjectFile)) {
+      continue
+    }
+
+    $SharedProjectText = Get-Content $SharedProjectFile -Raw
+    $TraceRecordingStateSerializerInclude = '    <ClCompile Include="$(ReactNativeDir)\ReactCommon\jsinspector-modern\tracing\TraceRecordingStateSerializer.cpp" />'
+    $UpdatedSharedProjectText = $SharedProjectText.Replace(
+      $TraceRecordingStateSerializerInclude + [Environment]::NewLine,
+      ''
+    ).Replace(
+      $TraceRecordingStateSerializerInclude + "`n",
+      ''
+    )
+
+    if ($UpdatedSharedProjectText -ne $SharedProjectText) {
+      Set-Content -Path $SharedProjectFile -Value $UpdatedSharedProjectText -NoNewline
+      Write-Host "Removed stale TraceRecordingStateSerializer project reference: $SharedProjectFile"
+      $PatchedAny = $true
+    } else {
+      Write-Host "TraceRecordingStateSerializer project reference patch was not needed: $SharedProjectFile"
+    }
+  }
+
   $FabricUIManagerHeader = Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\FabricUIManagerModule.h"
   if (Test-Path $FabricUIManagerHeader) {
     $FabricUIManagerHeaderText = Get-Content $FabricUIManagerHeader -Raw
