@@ -7,6 +7,7 @@ $packageDir = Join-Path $appRoot "windows\OffhandReactnative.Package\AppPackages
 $platform = if ($env:OFFHAND_WINDOWS_PLATFORM) { $env:OFFHAND_WINDOWS_PLATFORM } else { "x64" }
 $configuration = if ($env:OFFHAND_WINDOWS_CONFIGURATION) { $env:OFFHAND_WINDOWS_CONFIGURATION } else { "Release" }
 $windowsTargetPlatformVersion = if ($env:OFFHAND_WINDOWS_SDK_VERSION) { $env:OFFHAND_WINDOWS_SDK_VERSION } else { "10.0.22621.0" }
+$windowsTargetPlatformMinVersion = if ($env:OFFHAND_WINDOWS_MIN_SDK_VERSION) { $env:OFFHAND_WINDOWS_MIN_SDK_VERSION } else { "10.0.17763.0" }
 $windowsAppSdkFallbackPlatform = if ($env:OFFHAND_WINDOWS_APP_SDK_FALLBACK_PLATFORM) { $env:OFFHAND_WINDOWS_APP_SDK_FALLBACK_PLATFORM } else { "x86" }
 
 function Get-MSBuildPath {
@@ -117,6 +118,7 @@ $msbuildArgs = @(
   "/p:Configuration=$configuration",
   "/p:Platform=$platform",
   "/p:WindowsTargetPlatformVersion=$windowsTargetPlatformVersion",
+  "/p:WindowsTargetPlatformMinVersion=$windowsTargetPlatformMinVersion",
   "/p:GenerateAppxPackageOnBuild=true",
   "/p:AppxBundle=Never",
   "/p:UapAppxPackageBuildMode=SideloadOnly",
