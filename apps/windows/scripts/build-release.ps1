@@ -133,6 +133,33 @@ function Repair-SqliteCppWinRtLegacyPackage {
   Write-Host "Copied CppWinRT package $($sourcePackage.Name) to SQLitePlugin legacy package path $legacyPackageDir"
 }
 
+function Repair-ReactNativeNugetTargets {
+  $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE ".nuget\packages" }
+  $reactNativePackageRoot = Join-Path $nugetRoot "microsoft.reactnative"
+  if (!(Test-Path $reactNativePackageRoot)) {
+    Write-Host "Microsoft.ReactNative package was not restored under $reactNativePackageRoot"
+    return
+  }
+
+  $anchor = '    <_rnwArch Condition="''$(RnwNewArch)''!=''true''">-old</_rnwArch>'
+  $replacement = @(
+    '    <_rnwArch Condition="''$(RnwNewArch)''!=''true'' And Exists(''$(MSBuildThisFileDirectory)..\..\lib\uap10.0-old\Microsoft.ReactNative.winmd'')">-old</_rnwArch>',
+    '    <_rnwArch Condition="''$(RnwNewArch)''!=''true'' And !Exists(''$(MSBuildThisFileDirectory)..\..\lib\uap10.0-old\Microsoft.ReactNative.winmd'')"></_rnwArch>'
+  ) -join "`r`n"
+
+  $targetFiles = Get-ChildItem -Path $reactNativePackageRoot -Recurse -File -Filter "Microsoft.ReactNative.targets"
+  foreach ($targetFile in $targetFiles) {
+    $content = Get-Content -Raw -Path $targetFile.FullName
+    if ($content.Contains($replacement) -or !$content.Contains($anchor)) {
+      continue
+    }
+
+    $updatedContent = $content.Replace($anchor, $replacement)
+    Set-Content -Path $targetFile.FullName -Value $updatedContent -NoNewline -Encoding UTF8
+    Write-Host "Patched Microsoft.ReactNative NuGet target old-arch fallback in $($targetFile.FullName)"
+  }
+}
+
 function Repair-SqlitePluginProject {
   $sqliteProjectPath = Join-Path $appRoot "node_modules\react-native-sqlite-storage\platforms\windows\SQLitePlugin\SQLitePlugin.vcxproj"
   if (!(Test-Path $sqliteProjectPath)) {
@@ -224,6 +251,7 @@ if ($LASTEXITCODE -ne 0) {
 Repair-WindowsAppSdkFoundationProps
 Repair-HermesProps
 Repair-SqliteCppWinRtLegacyPackage
+Repair-ReactNativeNugetTargets
 
 & $msbuildPath $solutionPath /m @msbuildArgs
 
