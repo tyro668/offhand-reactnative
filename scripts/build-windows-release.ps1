@@ -250,6 +250,86 @@ function Repair-ReactNativeWindowsSources {
     }
   }
 
+  $ReactHostSource = Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\ReactHost\ReactHost.cpp"
+  if (Test-Path $ReactHostSource) {
+    $ReactHostText = Get-Content $ReactHostSource -Raw
+    $UpdatedReactHostText = [regex]::Replace(
+      $ReactHostText,
+      '(?m)^\s*capabilities\.prefersFuseboxFrontend = true;\r?\n',
+      ''
+    )
+
+    if ($UpdatedReactHostText -ne $ReactHostText) {
+      Set-Content -Path $ReactHostSource -Value $UpdatedReactHostText -NoNewline
+      Write-Host "Applied ReactHost inspector capabilities compatibility patch: $ReactHostSource"
+      $PatchedAny = $true
+    } else {
+      Write-Host "ReactHost inspector capabilities compatibility patch was not needed: $ReactHostSource"
+    }
+  }
+
+  $ReactInstanceWinSource = Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\ReactHost\ReactInstanceWin.cpp"
+  if (Test-Path $ReactInstanceWinSource) {
+    $ReactInstanceWinText = Get-Content $ReactInstanceWinSource -Raw
+    $TurboModuleBindingNeedle = @(
+      "                  auto binding =",
+      "                      [turboModuleManager](const std::string &name) -> std::shared_ptr<facebook::react::TurboModule> {",
+      "                    return turboModuleManager->getModule(name);",
+      "                  };",
+      "",
+      "                  // Use a legacy native module binding that always returns null",
+      "                  // This means that calls to NativeModules.XXX will always return null, rather than crashing on access",
+      "                  auto legacyNativeModuleBinding =",
+      "                      [](const std::string & /*name*/) -> std::shared_ptr<facebook::react::TurboModule> {",
+      "                    return nullptr;",
+      "                  };",
+      "",
+      "                  facebook::react::TurboModuleBinding::install(",
+      "                      runtime,",
+      "                      std::function(binding),",
+      "                      std::function(legacyNativeModuleBinding),",
+      "                      m_options.TurboModuleProvider->LongLivedObjectCollection());"
+    ) -join [Environment]::NewLine
+    $TurboModuleBindingReplacement = @(
+      "                  facebook::react::TurboModuleProviderFunctionTypeWithRuntime binding =",
+      "                      [turboModuleManager](",
+      "                          facebook::jsi::Runtime & /*runtime*/,",
+      "                          const std::string &name) -> std::shared_ptr<facebook::react::TurboModule> {",
+      "                    return turboModuleManager->getModule(name);",
+      "                  };",
+      "",
+      "                  // Use a legacy native module binding that always returns null",
+      "                  // This means that calls to NativeModules.XXX will always return null, rather than crashing on access",
+      "                  facebook::react::TurboModuleProviderFunctionTypeWithRuntime legacyNativeModuleBinding =",
+      "                      [](",
+      "                          facebook::jsi::Runtime & /*runtime*/,",
+      "                          const std::string & /*name*/) -> std::shared_ptr<facebook::react::TurboModule> {",
+      "                    return nullptr;",
+      "                  };",
+      "",
+      "                  facebook::react::TurboModuleBinding::install(",
+      "                      runtime,",
+      "                      std::move(binding),",
+      "                      std::move(legacyNativeModuleBinding),",
+      "                      m_options.TurboModuleProvider->LongLivedObjectCollection());"
+    ) -join [Environment]::NewLine
+    $UpdatedReactInstanceWinText = $ReactInstanceWinText.Replace(
+      $TurboModuleBindingNeedle,
+      $TurboModuleBindingReplacement
+    ).Replace(
+      ($TurboModuleBindingNeedle -replace "`r`n", "`n"),
+      ($TurboModuleBindingReplacement -replace "`r`n", "`n")
+    )
+
+    if ($UpdatedReactInstanceWinText -ne $ReactInstanceWinText) {
+      Set-Content -Path $ReactInstanceWinSource -Value $UpdatedReactInstanceWinText -NoNewline
+      Write-Host "Applied ReactInstanceWin TurboModule runtime provider compatibility patch: $ReactInstanceWinSource"
+      $PatchedAny = $true
+    } else {
+      Write-Host "ReactInstanceWin TurboModule runtime provider compatibility patch was not needed: $ReactInstanceWinSource"
+    }
+  }
+
   $AbiDescriptorSources = @(
     (Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\AbiComponentDescriptor.cpp"),
     (Join-Path $RootDir "node_modules\react-native-windows\Microsoft.ReactNative\Fabric\AbiViewComponentDescriptor.h")
